@@ -4,8 +4,7 @@ Unity URP(Universal Render Pipeline) 에서 동작하는 월드 스페이스 플
 
 ## Preview
 
-업로드 예정
-
+https://github.com/user-attachments/assets/50299113-4016-4622-aca2-d44aedc3f65c
 
 ## Features
 
