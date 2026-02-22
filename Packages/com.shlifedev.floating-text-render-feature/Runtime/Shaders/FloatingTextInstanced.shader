@@ -3,6 +3,8 @@ Shader "LD/FloatingTextRenderFeature/TextInstanced"
     Properties
     {
         _MainTex ("Sprite Texture", 2D) = "white" {}
+        _Columns ("Atlas Columns", Float) = 0
+        _Rows    ("Atlas Rows",    Float) = 0
     }
     SubShader
     {
@@ -36,6 +38,8 @@ Shader "LD/FloatingTextRenderFeature/TextInstanced"
 
             CBUFFER_START(UnityPerMaterial)
                 float4 _MainTex_ST;
+                float _Columns;
+                float _Rows;
             CBUFFER_END
 
             struct Attributes
@@ -50,6 +54,7 @@ Shader "LD/FloatingTextRenderFeature/TextInstanced"
                 float4 positionHCS : SV_POSITION;
                 float2 uv          : TEXCOORD0;
                 half   alpha       : TEXCOORD1;
+                float  charIndex   : TEXCOORD2;
                 UNITY_VERTEX_INPUT_INSTANCE_ID
             };
 
@@ -60,6 +65,7 @@ Shader "LD/FloatingTextRenderFeature/TextInstanced"
                 UNITY_TRANSFER_INSTANCE_ID(input, output);
 
                 output.alpha       = (half)UNITY_MATRIX_M._m02;
+                output.charIndex   = UNITY_MATRIX_M._m12;
                 output.positionHCS = TransformObjectToHClip(input.positionOS.xyz);
                 output.uv          = TRANSFORM_TEX(input.uv, _MainTex);
                 return output;
@@ -68,7 +74,19 @@ Shader "LD/FloatingTextRenderFeature/TextInstanced"
             half4 frag(Varyings input) : SV_Target
             {
                 UNITY_SETUP_INSTANCE_ID(input);
-                half4 texColor = SAMPLE_TEXTURE2D(_MainTex, sampler_MainTex, input.uv);
+
+                float2 uv = input.uv;
+
+                // Atlas mode: _Columns > 0
+                if (_Columns > 0)
+                {
+                    float2 cellSize = float2(1.0 / _Columns, 1.0 / _Rows);
+                    float col = fmod(input.charIndex, _Columns);
+                    float row = floor(input.charIndex / _Columns);
+                    uv = input.uv * cellSize + float2(col * cellSize.x, (_Rows - 1 - row) * cellSize.y);
+                }
+
+                half4 texColor = SAMPLE_TEXTURE2D(_MainTex, sampler_MainTex, uv);
                 return texColor * half4(1, 1, 1, input.alpha);
             }
 

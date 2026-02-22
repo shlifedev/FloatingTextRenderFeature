@@ -32,6 +32,9 @@ namespace LD.FloatingTextRenderFeature
         [Tooltip("Default lifetime in seconds if no duration is specified when calling Show().")]
         [SerializeField] private float defaultDuration = 0.8f;
 
+        [Header("Atlas")]
+        [SerializeField] private FloatingTextAtlas _atlas;
+
         [Header("Test")]
         [SerializeField] private float spamInterval = 0.05f;
 
@@ -61,6 +64,12 @@ namespace LD.FloatingTextRenderFeature
         private Matrix4x4[][] _charMatrices;
         private int[] _charCounts;
 
+        // Atlas mode
+        private bool _useAtlas;
+        private Material _atlasMaterial;
+        private Matrix4x4[] _atlasMatrices;
+        private int _atlasCount;
+
         // Job System NativeArrays (Persistent, grow-only)
         private NativeArray<FloatingTextEntryNative> _nativeEntries;
         private NativeArray<AnimationResult> _animResults;
@@ -74,6 +83,10 @@ namespace LD.FloatingTextRenderFeature
         internal Matrix4x4[][] CharMatrices => _charMatrices;
         internal int[] CharCounts => _charCounts;
         internal int SupportedCharCount => SupportedChars.Length;
+        internal bool UseAtlas => _useAtlas;
+        internal Material AtlasMaterial => _atlasMaterial;
+        internal Matrix4x4[] AtlasMatrices => _atlasMatrices;
+        internal int AtlasCount => _atlasCount;
 
         private bool _initialized;
 
@@ -121,17 +134,44 @@ namespace LD.FloatingTextRenderFeature
                 return;
             }
 
-            int n = SupportedChars.Length;
-            _charMatrices = new Matrix4x4[n][];
-            _charCounts = new int[n];
-            _materialArray = new Material[n];
+            // Atlas mode: single material, single matrices array
+            if (_atlas != null && _atlas.atlasTexture != null)
+            {
+                _useAtlas = true;
+                _atlasMaterial = new Material(shader)
+                {
+                    mainTexture = _atlas.atlasTexture,
+                    enableInstancing = true,
+                };
+                _atlasMaterial.SetFloat("_Columns", _atlas.columns);
+                _atlasMaterial.SetFloat("_Rows", _atlas.rows);
+                _atlasMatrices = new Matrix4x4[MaxInstances];
 
-            for (int i = 0; i < n; i++)
+                // Still allocate legacy arrays (needed for CharCounts null-check guard)
+                int n = SupportedChars.Length;
+                _charMatrices = new Matrix4x4[n][];
+                _charCounts = new int[n];
+                _materialArray = new Material[n];
+                for (int i = 0; i < n; i++)
+                    _charMatrices[i] = new Matrix4x4[0];
+
+                _initialized = true;
+                Debug.Log($"[FloatingTextManager] Initialized (Atlas mode). Columns={_atlas.columns} Rows={_atlas.rows}");
+                return;
+            }
+
+            // Legacy mode: per-char materials via Addressables
+            int count = SupportedChars.Length;
+            _charMatrices = new Matrix4x4[count][];
+            _charCounts = new int[count];
+            _materialArray = new Material[count];
+
+            for (int i = 0; i < count; i++)
             {
                 _charMatrices[i] = new Matrix4x4[MaxInstances];
             }
 
-            for (int i = 0; i < n; i++)
+            for (int i = 0; i < count; i++)
             {
                 char c = SupportedChars[i];
                 var key = GetSpriteKey(c);
@@ -151,7 +191,7 @@ namespace LD.FloatingTextRenderFeature
             }
 
             _initialized = true;
-            Debug.Log($"[FloatingTextManager] Initialized. Materials: {CountLoadedMaterials()}/{n}");
+            Debug.Log($"[FloatingTextManager] Initialized. Materials: {CountLoadedMaterials()}/{count}");
         }
 
 #if UNITY_EDITOR
@@ -228,19 +268,33 @@ namespace LD.FloatingTextRenderFeature
                 WriteOffsets = _writeOffsets.GetSubArray(0, count),
                 DigitSize = digitSize,
                 DigitWidth = digitWidth,
+                UseAtlas = _useAtlas,
                 Output = _digitOutputs,
             };
             JobHandle buildHandle = buildJob.Schedule(count, 32, animHandle);
             buildHandle.Complete();
 
-            // ── Phase 5: Scatter DigitOutput → _charMatrices (main thread) ──
-            for (int i = 0; i < totalDigits; i++)
+            // ── Phase 5: Scatter DigitOutput → matrices (main thread) ──
+            if (_useAtlas)
             {
-                var d = _digitOutputs[i];
-                int cnt = _charCounts[d.CharIndex];
-                if (cnt >= MaxInstances) continue;
-                _charMatrices[d.CharIndex][cnt] = ToMatrix(d.Matrix);
-                _charCounts[d.CharIndex] = cnt + 1;
+                _atlasCount = 0;
+                for (int i = 0; i < totalDigits; i++)
+                {
+                    if (_atlasCount >= MaxInstances) break;
+                    _atlasMatrices[_atlasCount] = ToMatrix(_digitOutputs[i].Matrix);
+                    _atlasCount++;
+                }
+            }
+            else
+            {
+                for (int i = 0; i < totalDigits; i++)
+                {
+                    var d = _digitOutputs[i];
+                    int cnt = _charCounts[d.CharIndex];
+                    if (cnt >= MaxInstances) continue;
+                    _charMatrices[d.CharIndex][cnt] = ToMatrix(d.Matrix);
+                    _charCounts[d.CharIndex] = cnt + 1;
+                }
             }
         }
 
@@ -326,6 +380,8 @@ namespace LD.FloatingTextRenderFeature
         private void OnDestroy()
         {
             DisposeNativeArrays();
+
+            if (_atlasMaterial != null) Destroy(_atlasMaterial);
 
             if (_materialArray != null)
                 foreach (var mat in _materialArray)
@@ -432,6 +488,7 @@ namespace LD.FloatingTextRenderFeature
 
         private int CountActiveSpriteTypes()
         {
+            if (_useAtlas) return _atlasCount > 0 ? 1 : 0;
             if (_charCounts == null) return 0;
             int c = 0;
             for (int i = 0; i < _charCounts.Length; i++)

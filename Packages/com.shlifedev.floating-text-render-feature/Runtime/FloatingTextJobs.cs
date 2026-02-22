@@ -57,6 +57,7 @@ namespace LD.FloatingTextRenderFeature
         [ReadOnly] public NativeArray<int> WriteOffsets;
         [ReadOnly] public float DigitSize;
         [ReadOnly] public float DigitWidth;
+        [ReadOnly] public bool UseAtlas;
 
         [NativeDisableParallelForRestriction]
         [WriteOnly] public NativeArray<DigitOutput> Output;
@@ -82,11 +83,12 @@ namespace LD.FloatingTextRenderFeature
                 int charIdx = (int)((packed >> ((digitLen - 1 - di) * 4)) & 0xF);
                 float wx = originX + (di - (digitLen - 1) * 0.5f) * DigitWidth * e.BaseScale;
 
-                // c2.x = alpha maps to shader UNITY_MATRIX_M._m02
+                // c2.x = alpha  -> shader UNITY_MATRIX_M._m02
+                // c2.y = charIndex -> shader UNITY_MATRIX_M._m12 (atlas mode only)
                 var matrix = new float4x4(
                     new float4(scale, 0f, 0f, 0f),
                     new float4(0f, scale, 0f, 0f),
-                    new float4(alpha, 0f, scale, 0f),
+                    new float4(alpha, UseAtlas ? (float)charIdx : 0f, scale, 0f),
                     new float4(wx, originY, originZ, 1f)
                 );
 

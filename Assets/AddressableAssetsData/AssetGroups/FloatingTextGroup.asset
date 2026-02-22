@@ -35,6 +35,11 @@ MonoBehaviour:
     m_ReadOnly: 0
     m_SerializedLabels: []
     FlaggedDuringContentUpdateRestriction: 0
+  - m_GUID: 9b9930ae677144e059ff62c0660de6e9
+    m_Address: Assets/Sprites/FloatingText/floating_text_,.png
+    m_ReadOnly: 0
+    m_SerializedLabels: []
+    FlaggedDuringContentUpdateRestriction: 0
   - m_GUID: b79e076e9fd46422ba625e30e5773faa
     m_Address: Assets/Sprites/FloatingText/floating_text_2.png
     m_ReadOnly: 0
@@ -62,6 +67,11 @@ MonoBehaviour:
     FlaggedDuringContentUpdateRestriction: 0
   - m_GUID: f7848c89763dd41068be56e5bab9ab64
     m_Address: Assets/Sprites/FloatingText/floating_text_9.png
+    m_ReadOnly: 0
+    m_SerializedLabels: []
+    FlaggedDuringContentUpdateRestriction: 0
+  - m_GUID: ff0a7224ee3b14f6b8637abdb31f5907
+    m_Address: Assets/Sprites/FloatingText/floating_text_..png
     m_ReadOnly: 0
     m_SerializedLabels: []
     FlaggedDuringContentUpdateRestriction: 0
