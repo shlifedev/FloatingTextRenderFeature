@@ -1,0 +1,22 @@
+{
+  "name": "com.shlifedev.floating-text-render-feature.Editor",
+  "rootNamespace": "LD.FloatingTextRenderFeature.Editor",
+  "references": [
+    "com.shlifedev.floating-text-render-feature.Runtime",
+    "Unity.RenderPipelines.Universal.Runtime",
+    "Unity.RenderPipelines.Universal.Editor",
+    "Unity.Addressables.Editor",
+    "Unity.Addressables"
+  ],
+  "includePlatforms": [
+    "Editor"
+  ],
+  "excludePlatforms": [],
+  "allowUnsafeCode": false,
+  "overrideReferences": false,
+  "precompiledReferences": [],
+  "autoReferenced": true,
+  "defineConstraints": [],
+  "versionDefines": [],
+  "noEngineReferences": false
+}

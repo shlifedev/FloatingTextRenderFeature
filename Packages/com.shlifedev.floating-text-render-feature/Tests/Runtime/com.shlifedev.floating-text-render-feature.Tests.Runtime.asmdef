@@ -1,0 +1,18 @@
+{
+  "name": "com.shlifedev.floating-text-render-feature.Tests.Runtime",
+  "rootNamespace": "LD.FloatingTextRenderFeature.Tests.Runtime",
+  "references": [
+    "com.shlifedev.floating-text-render-feature.Runtime"
+  ],
+  "includePlatforms": [],
+  "excludePlatforms": [],
+  "allowUnsafeCode": false,
+  "overrideReferences": true,
+  "precompiledReferences": [],
+  "autoReferenced": false,
+  "defineConstraints": [
+    "UNITY_INCLUDE_TESTS"
+  ],
+  "versionDefines": [],
+  "noEngineReferences": false
+}

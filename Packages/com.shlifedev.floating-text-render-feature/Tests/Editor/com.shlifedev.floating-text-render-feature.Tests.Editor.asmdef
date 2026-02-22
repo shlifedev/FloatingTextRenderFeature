@@ -1,0 +1,21 @@
+{
+  "name": "com.shlifedev.floating-text-render-feature.Tests.Editor",
+  "rootNamespace": "LD.FloatingTextRenderFeature.Tests.Editor",
+  "references": [
+    "com.shlifedev.floating-text-render-feature.Runtime",
+    "com.shlifedev.floating-text-render-feature.Editor"
+  ],
+  "includePlatforms": [
+    "Editor"
+  ],
+  "excludePlatforms": [],
+  "allowUnsafeCode": false,
+  "overrideReferences": true,
+  "precompiledReferences": [],
+  "autoReferenced": false,
+  "defineConstraints": [
+    "UNITY_INCLUDE_TESTS"
+  ],
+  "versionDefines": [],
+  "noEngineReferences": false
+}

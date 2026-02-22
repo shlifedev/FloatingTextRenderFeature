@@ -1,0 +1,65 @@
+# OMC
+.omc
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Unity generated
+/[Ll]ibrary/
+/[Tt]emp/
+/[Oo]bj/
+/[Bb]uild/
+/[Bb]uilds/
+/[Ll]ogs/
+/[Uu]ser[Ss]ettings/
+/[Mm]emoryCaptures/
+/[Rr]ecordings/
+
+# Asset meta (uncomment if not using Asset Serialization Mode: Force Text)
+# *.meta
+
+# Visual Studio / Rider
+.vs/
+.vscode/
+.idea/
+*.csproj
+*.sln
+*.suo
+*.tmp
+*.user
+*.userprefs
+*.pidb
+*.booproj
+*.svd
+*.pdb
+*.mdb
+*.opendb
+*.VC.db
+
+# Unity3D generated meta files
+*.pidb.meta
+*.pdb.meta
+*.mdb.meta
+
+# Builds
+*.apk
+*.aab
+*.unitypackage
+*.app
+
+# Crashlytics
+crashlytics-build.properties
+
+# Addressables
+/[Aa]ssets/[Aa]ddressable[Aa]ssets[Dd]ata/*/*.bin*
+/[Aa]ssets/[Ss]treamingAssets/aa.meta
+/[Aa]ssets/[Ss]treamingAssets/aa/*
+
+# TextMeshPro
+/[Aa]ssets/[Tt]ext[Mm]esh[Pp]ro/
+
+# Plastic SCM
+ignore.conf
+*.private.0
+*.private

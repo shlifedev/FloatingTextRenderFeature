@@ -1,0 +1,102 @@
+# =============== #
+#  Unity Generated #
+# =============== #
+
+/[Ll]ibrary/
+/[Tt]emp/
+/[Oo]bj/
+/[Bb]uild/
+/[Bb]uilds/
+/[Ll]ogs/
+/[Uu]ser[Ss]ettings/
+
+# =============== #
+#  IDE / Tools     #
+# =============== #
+
+# Visual Studio
+.vs/
+*.csproj
+*.unityproj
+*.sln
+*.suo
+*.tmp
+*.user
+*.userprefs
+*.pidb
+*.booproj
+*.svd
+*.pdb
+*.mdb
+*.opendb
+*.VC.db
+
+# JetBrains Rider
+.idea/
+*.sln.iml
+
+# Visual Studio Code
+.vscode/
+
+# =============== #
+#  OS Generated    #
+# =============== #
+
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# =============== #
+#  Unity Specific  #
+# =============== #
+
+# Asset meta data should only be ignored when the corresponding asset is also ignored
+!/[Aa]ssets/**/*.meta
+
+# Crashlytics
+crashlytics-build.properties
+sysinfo.txt
+
+# Builds
+*.apk
+*.aab
+*.unitypackage
+*.app
+
+# Profiling
+/[Aa]ssets/StreamingAssets/
+
+# Packaging
+*.unitypackage
+
+# Addressables
+/[Aa]ssets/[Aa]ddressable[Aa]ssets[Dd]ata/*/*.bin*
+/[Aa]ssets/[Ss]treamingAssets/aa.meta
+/[Aa]ssets/[Ss]treamingAssets/aa/*
+
+# TextMeshPro
+/[Aa]ssets/TextMesh*Pro/
+
+# Recordings
+/[Aa]ssets/Recordings/
+
+# =============== #
+#  Misc            #
+# =============== #
+
+# Annotation
+/[Aa]ssets/Plugins/Editor/JetBrains*
+
+# Code Coverage
+CodeCoverage/
+
+# Amplify
+AmplifyShaderEditor/
+
+# NuGet
+/[Nn]u[Gg]et/
