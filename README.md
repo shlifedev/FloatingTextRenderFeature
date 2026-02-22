@@ -6,10 +6,11 @@ Unity URP(Universal Render Pipeline) 에서 동작하는 월드 스페이스 플
 
 https://github.com/user-attachments/assets/50299113-4016-4622-aca2-d44aedc3f65c
 
+
 ## Features
 
-- **GPU Instanced Rendering** - 최소한의 렌더링 비용으로 수천개의 텍스트를 배치 렌더링
-- **Burst + Job System** - 텍스트 애니메이션을 JobSystem 병렬처리.
+- **GPU Instanced Rendering** - 최소한의 렌더링 비용으로 수천개의 텍스트를 배치 렌더링.
+- **Burst + Job System** - 텍스트 애니메이션을 JobSystem 병렬처리 및 버스트 컴파일. 
 ## Requirements
 
 - Unity 6000.0+
@@ -23,7 +24,7 @@ https://github.com/user-attachments/assets/50299113-4016-4622-aca2-d44aedc3f65c
 
 Package Manager에 다음을 추가하세요.
 
-- https://github.com/shlifedev/FloatingTextRenderFeature.git  
+- https://github.com/shlifedev/FloatingTextRenderFeature.git?path=
 
 ## Quick Start
 
@@ -57,10 +58,15 @@ FloatingTextManager.Instance.Show(worldPosition, damage, duration: 1.0f, scale: 
 6. **Generate Sprites** 버튼을 클릭하면 스프라이트가 생성되고 Addressables에 자동 등록됩니다
 
 
-
 ### 별도 폰트 이미지를 사용하려는 경우
 
 위 도구를 이용해서 스프라이트를 만든 뒤 자신의 이미지로 교체하세요.
+
+### 스프라이트 아틀라스
+
+현재는 아틀라스 미지원. 따라서 123456789 라는 텍스트를 렌더링시 배칭이 9 증가합니다.
+
+
  
 ## License
 
