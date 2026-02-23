@@ -6,6 +6,9 @@ using Unity.Jobs;
 using Unity.Mathematics;
 using UnityEngine;
 using UnityEngine.AddressableAssets;
+#if UNITY_ASSERTIONS
+using UnityEngine.Assertions;
+#endif
 #if UNITY_EDITOR
 using UnityEditor;
 #endif
@@ -255,7 +258,10 @@ namespace LD.FloatingTextRenderFeature
 
             EnsureDigitOutputCapacity(totalDigits);
 
-            // ── Phase 3: Evaluate animation (Burst job or managed fallback) ──
+            // ── Phase 3: Evaluate animation (custom animator must provide ScheduleEvaluateBatch Burst job) ──
+#if UNITY_ASSERTIONS
+            Assert.IsNotNull(_animator, $"[{nameof(FloatingTextManager)}] Animator is null.");
+#endif
             JobHandle animHandle = _animator.ScheduleEvaluateBatch(
                 _nativeEntries.GetSubArray(0, count),
                 _animResults.GetSubArray(0, count));
