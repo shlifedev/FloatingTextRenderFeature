@@ -31,10 +31,6 @@ namespace LD.FloatingTextRenderFeature
             private class PassData
             {
                 internal Mesh mesh;
-                internal Material[] materials;
-                internal Matrix4x4[][] matrices;
-                internal int[] counts;
-                internal int charCount;
                 internal TextureHandle colorTarget;
                 internal TextureHandle depthTarget;
 
@@ -43,6 +39,36 @@ namespace LD.FloatingTextRenderFeature
                 internal Material atlasMaterial;
                 internal Matrix4x4[] atlasMatrices;
                 internal int atlasCount;
+
+                // Non-atlas mode
+                internal Material[] materials;
+                internal Matrix4x4[][] matrices;
+                internal int[] counts;
+            }
+
+            private static void ExecutePass(PassData data, UnsafeGraphContext context)
+            {
+                context.cmd.SetRenderTarget(data.colorTarget, data.depthTarget);
+
+                if (data.useAtlas)
+                {
+                    if (data.atlasCount > 0 && data.atlasMaterial != null)
+                        context.cmd.DrawMeshInstanced(data.mesh, 0, data.atlasMaterial, 0, data.atlasMatrices, data.atlasCount);
+
+                    return;
+                }
+
+                int charCount = Mathf.Min(data.materials.Length, data.matrices.Length, data.counts.Length);
+                for (int i = 0; i < charCount; i++)
+                {
+                    int count = data.counts[i];
+                    if (count == 0) continue;
+
+                    var mat = data.materials[i];
+                    if (mat == null) continue;
+
+                    context.cmd.DrawMeshInstanced(data.mesh, 0, mat, 0, data.matrices[i], count);
+                }
             }
 
             public override void RecordRenderGraph(RenderGraph renderGraph, ContextContainer frameData)
@@ -71,36 +97,13 @@ namespace LD.FloatingTextRenderFeature
                         passData.materials = mgr.MaterialArray;
                         passData.matrices = mgr.CharMatrices;
                         passData.counts = mgr.CharCounts;
-                        passData.charCount = mgr.SupportedCharCount;
                     }
 
                     builder.UseTexture(passData.colorTarget, AccessFlags.Write);
                     builder.UseTexture(passData.depthTarget, AccessFlags.Write);
                     builder.AllowPassCulling(false);
 
-                    builder.SetRenderFunc((PassData data, UnsafeGraphContext context) =>
-                    {
-                        context.cmd.SetRenderTarget(data.colorTarget, data.depthTarget);
-
-                        if (data.useAtlas)
-                        {
-                            if (data.atlasCount > 0 && data.atlasMaterial != null)
-                                context.cmd.DrawMeshInstanced(data.mesh, 0, data.atlasMaterial, 0, data.atlasMatrices, data.atlasCount);
-                        }
-                        else
-                        {
-                            for (int i = 0; i < data.charCount; i++)
-                            {
-                                int count = data.counts[i];
-                                if (count == 0) continue;
-
-                                var mat = data.materials[i];
-                                if (mat == null) continue;
-
-                                context.cmd.DrawMeshInstanced(data.mesh, 0, mat, 0, data.matrices[i], count);
-                            }
-                        }
-                    });
+                    builder.SetRenderFunc(ExecutePass);
                 }
             }
         }

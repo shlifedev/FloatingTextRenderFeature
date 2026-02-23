@@ -1,6 +1,6 @@
 {
   "name": "com.shlifedev.floating-text-render-feature",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "displayName": "Floating Text Render Feature",
   "description": "A URP Render Feature for rendering floating text in world space.",
   "unity": "6000.0",
