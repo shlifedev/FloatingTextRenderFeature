@@ -6,15 +6,15 @@ namespace LD.FloatingTextRenderFeature.Editor
 {
     public class FloatingTextTesterWindow : EditorWindow
     {
-        private FloatingTextManager _manager;
+        [SerializeField] private FloatingTextManager _manager;
 
-        private int _testDamage = 1234;
-        private float _testDuration = 0.8f;
-        private float _testScale = 1f;
-        private float _testX;
-        private float _testY;
-        private int _testSpawnCount = 10;
-        private float _spamInterval = 0.05f;
+        [SerializeField] private int _testDamage = 1234;
+        [SerializeField] private float _testDuration = 0.8f;
+        [SerializeField] private float _testScale = 1f;
+        [SerializeField] private float _testX;
+        [SerializeField] private float _testY;
+        [SerializeField] private int _testSpawnCount = 10;
+        [SerializeField] private float _spamInterval = 0.05f;
         private bool _spamActive;
         private double _nextSpamTime;
 
