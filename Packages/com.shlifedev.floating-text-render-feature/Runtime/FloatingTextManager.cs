@@ -6,9 +6,6 @@ using Unity.Jobs;
 using Unity.Mathematics;
 using UnityEngine;
 using UnityEngine.AddressableAssets;
-#if UNITY_EDITOR
-using UnityEditor;
-#endif
 
 namespace LD.FloatingTextRenderFeature
 {
@@ -34,9 +31,6 @@ namespace LD.FloatingTextRenderFeature
 
         [Header("Atlas")]
         [SerializeField] private FloatingTextAtlas _atlas;
-
-        [Header("Test")]
-        [SerializeField] private float spamInterval = 0.05f;
 
         private static readonly char[] SupportedChars =
             { '0', '1', '2', '3', '4', '5', '6', '7', '8', '9', ',', '.' };
@@ -90,17 +84,6 @@ namespace LD.FloatingTextRenderFeature
 
         private bool _initialized;
 
-#if UNITY_EDITOR
-        private int _testDamage;
-        private float _testDuration;
-        private float _testScale = 1f;
-        private float _testX;
-        private float _testY;
-        private int _testSpawnCount = 10;
-        private bool _spamActive;
-        private float _spamTimer;
-#endif
-
         private void Awake()
         {
             if (_instance != null && _instance != this)
@@ -112,10 +95,6 @@ namespace LD.FloatingTextRenderFeature
             DisposeNativeArrays();
             if (_animator == null)
                 _animator = ScriptableObject.CreateInstance<DefaultFloatingTextAnimator>();
-#if UNITY_EDITOR
-            _testDamage = 1234;
-            _testDuration = defaultDuration;
-#endif
         }
 
         private void Start()
@@ -193,18 +172,6 @@ namespace LD.FloatingTextRenderFeature
             _initialized = true;
             Debug.Log($"[FloatingTextManager] Initialized. Materials: {CountLoadedMaterials()}/{count}");
         }
-
-#if UNITY_EDITOR
-        private void Update()
-        {
-            if (!_spamActive) return;
-            _spamTimer += Time.deltaTime;
-            if (_spamTimer < spamInterval) return;
-            _spamTimer = 0f;
-            var rng = UnityEngine.Random.insideUnitCircle * 1.5f;
-            Show(new Vector3(_testX + rng.x, _testY + rng.y, 0f), _testDamage, _testDuration, _testScale);
-        }
-#endif
 
         private void LateUpdate()
         {
@@ -314,68 +281,14 @@ namespace LD.FloatingTextRenderFeature
             });
         }
 
-#if UNITY_EDITOR
-        private void OnGUI()
+        public void ClearAll()
         {
-            if (Selection.activeGameObject != gameObject) return;
-
-            const float panelW = 295f;
-            const float panelH = 420f;
-
-            GUILayout.BeginArea(new Rect(10, 10, panelW, panelH));
-            GUI.Box(new Rect(0, 0, panelW, panelH), "Floating Text Tester");
-            GUILayout.Space(28);
-
-            GUILayout.Label($"Damage Value: {_testDamage}");
-            _testDamage = Mathf.RoundToInt(GUILayout.HorizontalSlider(_testDamage, 1, 99999));
-
-            GUILayout.Label($"Duration: {_testDuration:F2}s");
-            _testDuration = GUILayout.HorizontalSlider(_testDuration, 0.3f, 2.0f);
-
-            GUILayout.Label($"Scale: {_testScale:F2}");
-            _testScale = GUILayout.HorizontalSlider(_testScale, 0.1f, 3.0f);
-
-            GUILayout.Label($"Spawn Count: {_testSpawnCount}");
-            _testSpawnCount = Mathf.RoundToInt(GUILayout.HorizontalSlider(_testSpawnCount, 1, 500));
-
-            GUILayout.Label($"X Pos: {_testX:F1}");
-            _testX = GUILayout.HorizontalSlider(_testX, -10f, 10f);
-
-            GUILayout.Label($"Y Pos: {_testY:F1}");
-            _testY = GUILayout.HorizontalSlider(_testY, -10f, 10f);
-
-            GUILayout.Space(6);
-
-            if (GUILayout.Button("Spawn Once"))
-                Show(new Vector3(_testX, _testY, 0f), _testDamage, _testDuration, _testScale);
-
-            if (GUILayout.Button($"Spawn {_testSpawnCount}"))
-            {
-                for (int i = 0; i < _testSpawnCount; i++)
-                {
-                    var rng = UnityEngine.Random.insideUnitCircle * 1.5f;
-                    Show(new Vector3(_testX + rng.x, _testY + rng.y, 0f), _testDamage, _testDuration, _testScale);
-                }
-            }
-
-            string spamLabel = _spamActive ? "Spam: ON  (Toggle Off)" : "Spam (Toggle On)";
-            if (GUILayout.Button(spamLabel))
-            {
-                _spamActive = !_spamActive;
-                _spamTimer = 0f;
-            }
-
-            if (GUILayout.Button("Clear All"))
-                _entries.Clear();
-
-            GUILayout.Space(6);
-            GUILayout.Label($"Active Count: {_entries.Count}");
-            GUILayout.Label($"Draw Calls (est): {CountActiveSpriteTypes()}");
-            GUILayout.Label(_initialized ? "Status: Ready" : "Status: Initializing...");
-
-            GUILayout.EndArea();
+            _entries.Clear();
         }
-#endif
+
+        public int ActiveCount => _entries.Count;
+        public int ActiveDrawCallEstimate => CountActiveSpriteTypes();
+        public bool IsReady => _initialized;
 
         private void OnDestroy()
         {
