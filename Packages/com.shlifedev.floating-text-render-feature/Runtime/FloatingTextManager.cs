@@ -1,5 +1,4 @@
 using System;
-using System.Collections.Generic;
 using Cysharp.Threading.Tasks;
 using Unity.Collections;
 using Unity.Jobs;
@@ -38,6 +37,16 @@ namespace LD.FloatingTextRenderFeature
         [Header("Test")]
         [SerializeField] private float spamInterval = 0.05f;
 
+        [Header("Capacity")]
+        [Tooltip("Initial capacity of active floating text entries.")]
+        [SerializeField] private int initialEntryCapacity = 64;
+        [Tooltip("Maximum capacity for active floating text entries.")]
+        [SerializeField] private int maxEntryCapacity = 8192;
+        [Tooltip("Initial capacity of generated digit outputs.")]
+        [SerializeField] private int initialDigitOutputCapacity = 256;
+        [Tooltip("Maximum capacity for generated digit outputs.")]
+        [SerializeField] private int maxDigitOutputCapacity = 65536;
+
         private static readonly char[] SupportedChars =
             { '0', '1', '2', '3', '4', '5', '6', '7', '8', '9', ',', '.' };
 
@@ -47,17 +56,7 @@ namespace LD.FloatingTextRenderFeature
         [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.SubsystemRegistration)]
         private static void ResetStatics() => _instance = null;
 
-        private struct FloatingTextEntry
-        {
-            public Vector3 OriginPos;
-            public float Elapsed;
-            public float Duration;
-            public float BaseScale;
-            public long PackedDigits;
-            public byte DigitCount;
-        }
-
-        private readonly List<FloatingTextEntry> _entries = new();
+        private NativeList<FloatingTextEntryNative> _entries;
 
         private Mesh _quadMesh;
         private Material[] _materialArray;
@@ -71,11 +70,10 @@ namespace LD.FloatingTextRenderFeature
         private int _atlasCount;
 
         // Job System NativeArrays (Persistent, grow-only)
-        private NativeArray<FloatingTextEntryNative> _nativeEntries;
         private NativeArray<AnimationResult> _animResults;
         private NativeArray<int> _writeOffsets;
         private NativeArray<DigitOutput> _digitOutputs;
-        private int _nativeCapacity;
+        private int _entryJobCapacity;
         private int _digitOutputCapacity;
 
         internal Mesh QuadMesh => _quadMesh;
@@ -110,6 +108,7 @@ namespace LD.FloatingTextRenderFeature
             }
             _instance = this;
             DisposeNativeArrays();
+            EnsureEntryCapacity(initialEntryCapacity);
             if (_animator == null)
                 _animator = ScriptableObject.CreateInstance<DefaultFloatingTextAnimator>();
 #if UNITY_EDITOR
@@ -208,62 +207,52 @@ namespace LD.FloatingTextRenderFeature
 
         private void LateUpdate()
         {
-            if (!_initialized || _entries.Count == 0) return;
+            if (!_initialized || !_entries.IsCreated || _entries.Length == 0) return;
 
             Array.Clear(_charCounts, 0, _charCounts.Length);
 
             // ── Phase 1: Update elapsed, compact expired entries ──
             float dt = Time.deltaTime;
             int ei = 0;
-            while (ei < _entries.Count)
+            while (ei < _entries.Length)
             {
                 var entry = _entries[ei];
                 entry.Elapsed += dt;
                 if (entry.Elapsed >= entry.Duration)
                 {
-                    int last = _entries.Count - 1;
-                    if (ei < last) _entries[ei] = _entries[last];
-                    _entries.RemoveAt(last);
+                    _entries.RemoveAtSwapBack(ei);
                     continue;
                 }
                 _entries[ei] = entry;
                 ei++;
             }
 
-            int count = _entries.Count;
+            int count = _entries.Length;
             if (count == 0) return;
 
-            // ── Phase 2: Copy to NativeArrays + prefix sum ──
+            // ── Phase 2: Prefix sum ──
             EnsureNativeCapacity(count);
 
             int totalDigits = 0;
             for (int i = 0; i < count; i++)
             {
                 var e = _entries[i];
-                _nativeEntries[i] = new FloatingTextEntryNative
-                {
-                    OriginPos = new float3(e.OriginPos.x, e.OriginPos.y, e.OriginPos.z),
-                    Elapsed = e.Elapsed,
-                    Duration = e.Duration,
-                    BaseScale = e.BaseScale,
-                    PackedDigits = e.PackedDigits,
-                    DigitCount = e.DigitCount,
-                };
                 _writeOffsets[i] = totalDigits;
                 totalDigits += e.DigitCount;
             }
 
-            EnsureDigitOutputCapacity(totalDigits);
+            if (!EnsureDigitOutputCapacity(totalDigits)) return;
 
             // ── Phase 3: Evaluate animation (Burst job or managed fallback) ──
+            var entryArray = _entries.AsArray();
             JobHandle animHandle = _animator.ScheduleEvaluateBatch(
-                _nativeEntries.GetSubArray(0, count),
+                entryArray.GetSubArray(0, count),
                 _animResults.GetSubArray(0, count));
 
             // ── Phase 4: Build digit matrices (Burst job, depends on Phase 3) ──
             var buildJob = new BuildDigitMatricesJob
             {
-                Entries = _nativeEntries.GetSubArray(0, count),
+                Entries = entryArray.GetSubArray(0, count),
                 AnimResults = _animResults.GetSubArray(0, count),
                 WriteOffsets = _writeOffsets.GetSubArray(0, count),
                 DigitSize = digitSize,
@@ -303,9 +292,12 @@ namespace LD.FloatingTextRenderFeature
             if (!_initialized) return;
             int absDamage = Mathf.Abs(damage);
             long packed = PackDigits(absDamage, out byte digitCount);
-            _entries.Add(new FloatingTextEntry
+
+            if (!EnsureEntryCapacity(_entries.Length + 1)) return;
+
+            _entries.Add(new FloatingTextEntryNative
             {
-                OriginPos = worldPos,
+                OriginPos = new float3(worldPos.x, worldPos.y, worldPos.z),
                 Elapsed = 0f,
                 Duration = duration > 0f ? duration : defaultDuration,
                 BaseScale = scale,
@@ -369,7 +361,7 @@ namespace LD.FloatingTextRenderFeature
                 _entries.Clear();
 
             GUILayout.Space(6);
-            GUILayout.Label($"Active Count: {_entries.Count}");
+            GUILayout.Label($"Active Count: {_entries.Length}");
             GUILayout.Label($"Draw Calls (est): {CountActiveSpriteTypes()}");
             GUILayout.Label(_initialized ? "Status: Ready" : "Status: Initializing...");
 
@@ -388,46 +380,83 @@ namespace LD.FloatingTextRenderFeature
                     if (mat != null) Destroy(mat);
 
             if (_quadMesh != null) Destroy(_quadMesh);
-            _entries.Clear();
             if (_instance == this) _instance = null;
+        }
+
+        private bool EnsureEntryCapacity(int required)
+        {
+            int safeInitial = Mathf.Max(1, initialEntryCapacity);
+            int safeMax = Mathf.Max(safeInitial, maxEntryCapacity);
+
+            if (!_entries.IsCreated)
+            {
+                int capacity = Mathf.Min(Mathf.Max(required, safeInitial), safeMax);
+                _entries = new NativeList<FloatingTextEntryNative>(capacity, Allocator.Persistent);
+            }
+
+            if (_entries.Capacity >= required) return true;
+            if (required > safeMax)
+            {
+                Debug.LogWarning($"[FloatingTextManager] Entry capacity exceeded max ({safeMax}). Spawn skipped.");
+                return false;
+            }
+
+            int newCapacity = NextCapacity(_entries.Capacity, required, safeInitial, safeMax);
+            _entries.Capacity = newCapacity;
+            return true;
         }
 
         private void EnsureNativeCapacity(int required)
         {
-            if (_nativeCapacity >= required) return;
+            int safeInitial = Mathf.Max(1, initialEntryCapacity);
+            int safeMax = Mathf.Max(safeInitial, maxEntryCapacity);
+            if (_entryJobCapacity >= required) return;
 
-            int newCapacity = Mathf.Max(required, _nativeCapacity * 2);
-            newCapacity = Mathf.Max(newCapacity, 64);
+            int newCapacity = NextCapacity(_entryJobCapacity, required, safeInitial, safeMax);
 
-            if (_nativeEntries.IsCreated) _nativeEntries.Dispose();
             if (_animResults.IsCreated) _animResults.Dispose();
             if (_writeOffsets.IsCreated) _writeOffsets.Dispose();
 
-            _nativeEntries = new NativeArray<FloatingTextEntryNative>(newCapacity, Allocator.Persistent);
             _animResults = new NativeArray<AnimationResult>(newCapacity, Allocator.Persistent);
             _writeOffsets = new NativeArray<int>(newCapacity, Allocator.Persistent);
-            _nativeCapacity = newCapacity;
+            _entryJobCapacity = newCapacity;
         }
 
-        private void EnsureDigitOutputCapacity(int required)
+        private bool EnsureDigitOutputCapacity(int required)
         {
-            if (_digitOutputCapacity >= required) return;
+            if (_digitOutputCapacity >= required) return true;
 
-            int newCapacity = Mathf.Max(required, _digitOutputCapacity * 2);
-            newCapacity = Mathf.Max(newCapacity, 256);
+            int safeInitial = Mathf.Max(1, initialDigitOutputCapacity);
+            int safeMax = Mathf.Max(safeInitial, maxDigitOutputCapacity);
+            if (required > safeMax)
+            {
+                Debug.LogWarning($"[FloatingTextManager] Digit output capacity exceeded max ({safeMax}). Frame skipped.");
+                return false;
+            }
+
+            int newCapacity = NextCapacity(_digitOutputCapacity, required, safeInitial, safeMax);
 
             if (_digitOutputs.IsCreated) _digitOutputs.Dispose();
             _digitOutputs = new NativeArray<DigitOutput>(newCapacity, Allocator.Persistent);
             _digitOutputCapacity = newCapacity;
+            return true;
+        }
+
+        private static int NextCapacity(int current, int required, int initial, int max)
+        {
+            int capacity = Mathf.Max(current, initial);
+            while (capacity < required && capacity < max)
+                capacity = Mathf.Min(capacity * 2, max);
+            return Mathf.Max(capacity, required);
         }
 
         private void DisposeNativeArrays()
         {
-            if (_nativeEntries.IsCreated) _nativeEntries.Dispose();
+            if (_entries.IsCreated) _entries.Dispose();
             if (_animResults.IsCreated) _animResults.Dispose();
             if (_writeOffsets.IsCreated) _writeOffsets.Dispose();
             if (_digitOutputs.IsCreated) _digitOutputs.Dispose();
-            _nativeCapacity = 0;
+            _entryJobCapacity = 0;
             _digitOutputCapacity = 0;
         }
 
