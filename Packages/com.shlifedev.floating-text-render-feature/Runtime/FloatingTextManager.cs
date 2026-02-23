@@ -241,7 +241,7 @@ namespace LD.FloatingTextRenderFeature
                 totalDigits += e.DigitCount;
             }
 
-            if (!EnsureDigitOutputCapacity(totalDigits)) return;
+            EnsureDigitOutputCapacity(totalDigits);
 
             // ── Phase 3: Evaluate animation (Burst job or managed fallback) ──
             var entryArray = _entries.AsArray();
@@ -422,24 +422,22 @@ namespace LD.FloatingTextRenderFeature
             _entryJobCapacity = newCapacity;
         }
 
-        private bool EnsureDigitOutputCapacity(int required)
+        private void EnsureDigitOutputCapacity(int required)
         {
-            if (_digitOutputCapacity >= required) return true;
+            if (_digitOutputCapacity >= required) return;
 
             int safeInitial = Mathf.Max(1, initialDigitOutputCapacity);
             int safeMax = Mathf.Max(safeInitial, maxDigitOutputCapacity);
             if (required > safeMax)
             {
-                Debug.LogWarning($"[FloatingTextManager] Digit output capacity exceeded max ({safeMax}). Frame skipped.");
-                return false;
+                Debug.LogWarning($"[FloatingTextManager] Digit output capacity ({required}) exceeds recommended max ({safeMax}).");
             }
 
-            int newCapacity = NextCapacity(_digitOutputCapacity, required, safeInitial, safeMax);
+            int newCapacity = NextCapacity(_digitOutputCapacity, required, safeInitial, Mathf.Max(safeMax, required));
 
             if (_digitOutputs.IsCreated) _digitOutputs.Dispose();
             _digitOutputs = new NativeArray<DigitOutput>(newCapacity, Allocator.Persistent);
             _digitOutputCapacity = newCapacity;
-            return true;
         }
 
         private static int NextCapacity(int current, int required, int initial, int max)
