@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using Cysharp.Threading.Tasks;
 using Unity.Collections;
+using System.Globalization;
 using Unity.Jobs;
 using Unity.Mathematics;
 using UnityEngine;
@@ -39,7 +40,7 @@ namespace LD.FloatingTextRenderFeature
         [SerializeField] private float spamInterval = 0.05f;
 
         private static readonly char[] SupportedChars =
-            { '0', '1', '2', '3', '4', '5', '6', '7', '8', '9', ',', '.' };
+            { '0', '1', '2', '3', '4', '5', '6', '7', '8', '9', ',', '.', '-' };
 
         private static FloatingTextManager _instance;
         public static FloatingTextManager Instance => _instance;
@@ -53,8 +54,7 @@ namespace LD.FloatingTextRenderFeature
             public float Elapsed;
             public float Duration;
             public float BaseScale;
-            public long PackedDigits;
-            public byte DigitCount;
+            public FixedList32Bytes<byte> DigitIndices;
         }
 
         private readonly List<FloatingTextEntry> _entries = new();
@@ -246,11 +246,10 @@ namespace LD.FloatingTextRenderFeature
                     Elapsed = e.Elapsed,
                     Duration = e.Duration,
                     BaseScale = e.BaseScale,
-                    PackedDigits = e.PackedDigits,
-                    DigitCount = e.DigitCount,
+                    DigitIndices = e.DigitIndices,
                 };
                 _writeOffsets[i] = totalDigits;
-                totalDigits += e.DigitCount;
+                totalDigits += e.DigitIndices.Length;
             }
 
             EnsureDigitOutputCapacity(totalDigits);
@@ -299,18 +298,27 @@ namespace LD.FloatingTextRenderFeature
         }
 
         public void Show(Vector3 worldPos, int damage, float duration = 0f, float scale = 1f)
+            => Show(worldPos, damage, useThousandsSeparator: false, duration: duration, scale: scale);
+
+        /// <summary>
+        /// 숫자 문자열 입력 규칙:
+        /// 1) 음수는 맨 앞에 '-'를 붙인다.
+        /// 2) useThousandsSeparator=true 이면 정수부에 천단위 구분자(',')를 자동 삽입한다.
+        /// 3) 소수점은 지원하지 않으며 입력은 정수(int)로 제한된다.
+        /// 4) 길이가 버퍼 용량(최대 32바이트)보다 길 경우 뒤에서부터 잘라내지 않고 예외를 던진다.
+        /// </summary>
+        public void Show(Vector3 worldPos, int value, bool useThousandsSeparator, float duration = 0f, float scale = 1f)
         {
             if (!_initialized) return;
-            int absDamage = Mathf.Abs(damage);
-            long packed = PackDigits(absDamage, out byte digitCount);
+
+            var digitIndices = PackDigits(value, useThousandsSeparator);
             _entries.Add(new FloatingTextEntry
             {
                 OriginPos = worldPos,
                 Elapsed = 0f,
                 Duration = duration > 0f ? duration : defaultDuration,
                 BaseScale = scale,
-                PackedDigits = packed,
-                DigitCount = digitCount,
+                DigitIndices = digitIndices,
             });
         }
 
@@ -462,20 +470,36 @@ namespace LD.FloatingTextRenderFeature
             _ => $"{SpriteKeyPrefix}{c}.png",
         };
 
-        private static long PackDigits(int n, out byte digitCount)
+        private static FixedList32Bytes<byte> PackDigits(int value, bool useThousandsSeparator)
         {
-            if (n == 0) { digitCount = 1; return 0; }
+            string formatted = useThousandsSeparator
+                ? value.ToString("N0", CultureInfo.InvariantCulture)
+                : value.ToString(CultureInfo.InvariantCulture);
 
-            long packed = 0;
-            byte count = 0;
-            while (n > 0)
+            var digits = new FixedList32Bytes<byte>();
+            for (int i = 0; i < formatted.Length; i++)
             {
-                packed |= (long)(n % 10) << (count * 4);
-                count++;
-                n /= 10;
+                byte idx = formatted[i] switch
+                {
+                    '0' => 0,
+                    '1' => 1,
+                    '2' => 2,
+                    '3' => 3,
+                    '4' => 4,
+                    '5' => 5,
+                    '6' => 6,
+                    '7' => 7,
+                    '8' => 8,
+                    '9' => 9,
+                    ',' => 10,
+                    '.' => 11,
+                    '-' => 12,
+                    _ => throw new ArgumentOutOfRangeException(nameof(value), formatted[i], "지원하지 않는 문자입니다."),
+                };
+                digits.Add(idx);
             }
-            digitCount = count;
-            return packed;
+
+            return digits;
         }
 
         private int CountLoadedMaterials()

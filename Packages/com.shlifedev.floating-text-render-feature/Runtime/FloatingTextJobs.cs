@@ -69,8 +69,7 @@ namespace LD.FloatingTextRenderFeature
             float scale = DigitSize * e.BaseScale * anim.ScaleFactor;
             float alpha = anim.Alpha;
 
-            int digitLen = e.DigitCount;
-            long packed = e.PackedDigits;
+            int digitLen = e.DigitIndices.Length;
 
             float originX = e.OriginPos.x;
             float originY = e.OriginPos.y + anim.YOffset;
@@ -80,7 +79,7 @@ namespace LD.FloatingTextRenderFeature
 
             for (int di = 0; di < digitLen; di++)
             {
-                int charIdx = (int)((packed >> ((digitLen - 1 - di) * 4)) & 0xF);
+                int charIdx = e.DigitIndices[di];
                 float wx = originX + (di - (digitLen - 1) * 0.5f) * DigitWidth * e.BaseScale;
 
                 // c2.x = alpha  -> shader UNITY_MATRIX_M._m02

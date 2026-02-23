@@ -1,4 +1,5 @@
 using Unity.Mathematics;
+using Unity.Collections;
 
 namespace LD.FloatingTextRenderFeature
 {
@@ -8,8 +9,7 @@ namespace LD.FloatingTextRenderFeature
         public float Elapsed;
         public float Duration;
         public float BaseScale;
-        public long PackedDigits;
-        public byte DigitCount;
+        public FixedList32Bytes<byte> DigitIndices;
     }
 
     public struct AnimationResult
