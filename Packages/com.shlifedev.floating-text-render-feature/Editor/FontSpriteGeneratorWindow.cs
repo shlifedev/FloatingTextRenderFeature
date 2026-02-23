@@ -393,7 +393,7 @@ namespace LD.FloatingTextRenderFeature.Editor
                     }
                 }
 
-                aaSettings.SetDirty(AddressableAssetSettings.ModificationEvent.EntryMoved, null, true);
+                aaSettings.SetDirty(AddressableAssetSettings.ModificationEvent.EntryMoved, null, false);
                 Debug.Log($"[FontSpriteGenerator] Added {generatedPaths.Count} sprite(s) to Addressables group 'FloatingTextGroup'.");
             }
             else
