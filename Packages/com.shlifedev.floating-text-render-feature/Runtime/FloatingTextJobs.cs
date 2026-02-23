@@ -6,6 +6,80 @@ using Unity.Mathematics;
 namespace LD.FloatingTextRenderFeature
 {
     [BurstCompile]
+    public struct UpdateEntriesAndMarkAliveJob : IJobParallelFor
+    {
+        public float DeltaTime;
+
+        public NativeArray<FloatingTextEntryNative> Entries;
+        [WriteOnly] public NativeArray<byte> AliveFlags;
+
+        public void Execute(int i)
+        {
+            var e = Entries[i];
+            e.Elapsed += DeltaTime;
+            Entries[i] = e;
+            AliveFlags[i] = (byte)(e.Elapsed < e.Duration ? 1 : 0);
+        }
+    }
+
+    [BurstCompile]
+    public struct PrefixSumAliveJob : IJob
+    {
+        [ReadOnly] public NativeArray<byte> AliveFlags;
+        [WriteOnly] public NativeArray<int> AliveOffsets;
+        [WriteOnly] public NativeArray<int> AliveCount;
+
+        public void Execute()
+        {
+            int sum = 0;
+            for (int i = 0; i < AliveFlags.Length; i++)
+            {
+                AliveOffsets[i] = sum;
+                sum += AliveFlags[i];
+            }
+
+            AliveCount[0] = sum;
+        }
+    }
+
+    [BurstCompile]
+    public struct CompactAliveEntriesJob : IJobParallelFor
+    {
+        [ReadOnly] public NativeArray<FloatingTextEntryNative> Entries;
+        [ReadOnly] public NativeArray<byte> AliveFlags;
+        [ReadOnly] public NativeArray<int> AliveOffsets;
+
+        [NativeDisableParallelForRestriction]
+        [WriteOnly] public NativeArray<FloatingTextEntryNative> Compacted;
+
+        public void Execute(int i)
+        {
+            if (AliveFlags[i] == 0) return;
+            Compacted[AliveOffsets[i]] = Entries[i];
+        }
+    }
+
+    [BurstCompile]
+    public struct BuildWriteOffsetsJob : IJob
+    {
+        [ReadOnly] public NativeArray<FloatingTextEntryNative> Entries;
+        [WriteOnly] public NativeArray<int> WriteOffsets;
+        [WriteOnly] public NativeArray<int> TotalDigits;
+
+        public void Execute()
+        {
+            int sum = 0;
+            for (int i = 0; i < Entries.Length; i++)
+            {
+                WriteOffsets[i] = sum;
+                sum += Entries[i].DigitCount;
+            }
+
+            TotalDigits[0] = sum;
+        }
+    }
+
+    [BurstCompile]
     public struct EvaluateAnimationJob : IJobParallelFor
     {
         [ReadOnly] public NativeArray<FloatingTextEntryNative> Entries;

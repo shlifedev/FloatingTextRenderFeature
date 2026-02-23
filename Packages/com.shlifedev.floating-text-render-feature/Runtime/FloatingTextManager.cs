@@ -72,9 +72,14 @@ namespace LD.FloatingTextRenderFeature
 
         // Job System NativeArrays (Persistent, grow-only)
         private NativeArray<FloatingTextEntryNative> _nativeEntries;
+        private NativeArray<FloatingTextEntryNative> _compactedEntries;
         private NativeArray<AnimationResult> _animResults;
         private NativeArray<int> _writeOffsets;
         private NativeArray<DigitOutput> _digitOutputs;
+        private NativeArray<byte> _aliveFlags;
+        private NativeArray<int> _aliveOffsets;
+        private NativeArray<int> _aliveCountBuffer;
+        private NativeArray<int> _totalDigitsBuffer;
         private int _nativeCapacity;
         private int _digitOutputCapacity;
 
@@ -212,31 +217,10 @@ namespace LD.FloatingTextRenderFeature
 
             Array.Clear(_charCounts, 0, _charCounts.Length);
 
-            // ── Phase 1: Update elapsed, compact expired entries ──
-            float dt = Time.deltaTime;
-            int ei = 0;
-            while (ei < _entries.Count)
-            {
-                var entry = _entries[ei];
-                entry.Elapsed += dt;
-                if (entry.Elapsed >= entry.Duration)
-                {
-                    int last = _entries.Count - 1;
-                    if (ei < last) _entries[ei] = _entries[last];
-                    _entries.RemoveAt(last);
-                    continue;
-                }
-                _entries[ei] = entry;
-                ei++;
-            }
-
             int count = _entries.Count;
-            if (count == 0) return;
-
-            // ── Phase 2: Copy to NativeArrays + prefix sum ──
             EnsureNativeCapacity(count);
 
-            int totalDigits = 0;
+            // ── Phase 1: Copy entries to NativeArray ──
             for (int i = 0; i < count; i++)
             {
                 var e = _entries[i];
@@ -249,29 +233,84 @@ namespace LD.FloatingTextRenderFeature
                     PackedDigits = e.PackedDigits,
                     DigitCount = e.DigitCount,
                 };
-                _writeOffsets[i] = totalDigits;
-                totalDigits += e.DigitCount;
             }
 
-            EnsureDigitOutputCapacity(totalDigits);
+            // ── Phase 2: Update elapsed + alive filtering + compaction ──
+            var updateJob = new UpdateEntriesAndMarkAliveJob
+            {
+                DeltaTime = Time.deltaTime,
+                Entries = _nativeEntries.GetSubArray(0, count),
+                AliveFlags = _aliveFlags.GetSubArray(0, count),
+            };
+            JobHandle updateHandle = updateJob.Schedule(count, 64);
 
-            // ── Phase 3: Evaluate animation (Burst job or managed fallback) ──
-            JobHandle animHandle = _animator.ScheduleEvaluateBatch(
-                _nativeEntries.GetSubArray(0, count),
-                _animResults.GetSubArray(0, count));
+            var prefixJob = new PrefixSumAliveJob
+            {
+                AliveFlags = _aliveFlags.GetSubArray(0, count),
+                AliveOffsets = _aliveOffsets.GetSubArray(0, count),
+                AliveCount = _aliveCountBuffer,
+            };
+            JobHandle prefixHandle = prefixJob.Schedule(updateHandle);
 
-            // ── Phase 4: Build digit matrices (Burst job, depends on Phase 3) ──
-            var buildJob = new BuildDigitMatricesJob
+            var compactJob = new CompactAliveEntriesJob
             {
                 Entries = _nativeEntries.GetSubArray(0, count),
-                AnimResults = _animResults.GetSubArray(0, count),
-                WriteOffsets = _writeOffsets.GetSubArray(0, count),
+                AliveFlags = _aliveFlags.GetSubArray(0, count),
+                AliveOffsets = _aliveOffsets.GetSubArray(0, count),
+                Compacted = _compactedEntries.GetSubArray(0, count),
+            };
+            JobHandle compactHandle = compactJob.Schedule(count, 64, prefixHandle);
+
+            compactHandle.Complete();
+
+            int aliveCount = _aliveCountBuffer[0];
+            _entries.Clear();
+            for (int i = 0; i < aliveCount; i++)
+            {
+                var e = _compactedEntries[i];
+                _entries.Add(new FloatingTextEntry
+                {
+                    OriginPos = new Vector3(e.OriginPos.x, e.OriginPos.y, e.OriginPos.z),
+                    Elapsed = e.Elapsed,
+                    Duration = e.Duration,
+                    BaseScale = e.BaseScale,
+                    PackedDigits = e.PackedDigits,
+                    DigitCount = e.DigitCount,
+                });
+            }
+
+            if (aliveCount == 0) return;
+
+            // ── Phase 3: Build write offsets(prefix sum) for compacted entries ──
+            var writeOffsetsJob = new BuildWriteOffsetsJob
+            {
+                Entries = _compactedEntries.GetSubArray(0, aliveCount),
+                WriteOffsets = _writeOffsets.GetSubArray(0, aliveCount),
+                TotalDigits = _totalDigitsBuffer,
+            };
+            JobHandle writeOffsetHandle = writeOffsetsJob.Schedule();
+            writeOffsetHandle.Complete();
+
+            int totalDigits = _totalDigitsBuffer[0];
+            EnsureDigitOutputCapacity(totalDigits);
+
+            // ── Phase 4: Evaluate animation (Burst job or managed fallback) ──
+            JobHandle animHandle = _animator.ScheduleEvaluateBatch(
+                _compactedEntries.GetSubArray(0, aliveCount),
+                _animResults.GetSubArray(0, aliveCount));
+
+            // ── Phase 5: Build digit matrices (Burst job, depends on Phase 4) ──
+            var buildJob = new BuildDigitMatricesJob
+            {
+                Entries = _compactedEntries.GetSubArray(0, aliveCount),
+                AnimResults = _animResults.GetSubArray(0, aliveCount),
+                WriteOffsets = _writeOffsets.GetSubArray(0, aliveCount),
                 DigitSize = digitSize,
                 DigitWidth = digitWidth,
                 UseAtlas = _useAtlas,
                 Output = _digitOutputs,
             };
-            JobHandle buildHandle = buildJob.Schedule(count, 32, animHandle);
+            JobHandle buildHandle = buildJob.Schedule(aliveCount, 32, animHandle);
             buildHandle.Complete();
 
             // ── Phase 5: Scatter DigitOutput → matrices (main thread) ──
@@ -400,12 +439,22 @@ namespace LD.FloatingTextRenderFeature
             newCapacity = Mathf.Max(newCapacity, 64);
 
             if (_nativeEntries.IsCreated) _nativeEntries.Dispose();
+            if (_compactedEntries.IsCreated) _compactedEntries.Dispose();
             if (_animResults.IsCreated) _animResults.Dispose();
             if (_writeOffsets.IsCreated) _writeOffsets.Dispose();
+            if (_aliveFlags.IsCreated) _aliveFlags.Dispose();
+            if (_aliveOffsets.IsCreated) _aliveOffsets.Dispose();
+            if (_aliveCountBuffer.IsCreated) _aliveCountBuffer.Dispose();
+            if (_totalDigitsBuffer.IsCreated) _totalDigitsBuffer.Dispose();
 
             _nativeEntries = new NativeArray<FloatingTextEntryNative>(newCapacity, Allocator.Persistent);
+            _compactedEntries = new NativeArray<FloatingTextEntryNative>(newCapacity, Allocator.Persistent);
             _animResults = new NativeArray<AnimationResult>(newCapacity, Allocator.Persistent);
             _writeOffsets = new NativeArray<int>(newCapacity, Allocator.Persistent);
+            _aliveFlags = new NativeArray<byte>(newCapacity, Allocator.Persistent);
+            _aliveOffsets = new NativeArray<int>(newCapacity, Allocator.Persistent);
+            _aliveCountBuffer = new NativeArray<int>(1, Allocator.Persistent);
+            _totalDigitsBuffer = new NativeArray<int>(1, Allocator.Persistent);
             _nativeCapacity = newCapacity;
         }
 
@@ -424,8 +473,13 @@ namespace LD.FloatingTextRenderFeature
         private void DisposeNativeArrays()
         {
             if (_nativeEntries.IsCreated) _nativeEntries.Dispose();
+            if (_compactedEntries.IsCreated) _compactedEntries.Dispose();
             if (_animResults.IsCreated) _animResults.Dispose();
             if (_writeOffsets.IsCreated) _writeOffsets.Dispose();
+            if (_aliveFlags.IsCreated) _aliveFlags.Dispose();
+            if (_aliveOffsets.IsCreated) _aliveOffsets.Dispose();
+            if (_aliveCountBuffer.IsCreated) _aliveCountBuffer.Dispose();
+            if (_totalDigitsBuffer.IsCreated) _totalDigitsBuffer.Dispose();
             if (_digitOutputs.IsCreated) _digitOutputs.Dispose();
             _nativeCapacity = 0;
             _digitOutputCapacity = 0;
