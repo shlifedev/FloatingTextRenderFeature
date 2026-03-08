@@ -1,11 +1,9 @@
 using System;
 using System.Collections.Generic;
-using Cysharp.Threading.Tasks;
 using Unity.Collections;
 using Unity.Jobs;
 using Unity.Mathematics;
 using UnityEngine;
-using UnityEngine.AddressableAssets;
 #if UNITY_EDITOR
 using UnityEditor;
 #endif
@@ -15,15 +13,15 @@ namespace LD.FloatingTextRenderFeature
     public class FloatingTextManager : MonoBehaviour
     {
         private const int MaxInstances = 1023;
+        private const int MaxCharsPerEntry = 8; // 8 chars × 8 bits = 64 bits (long)
 
         [Header("Resource")]
-        private const string SpriteKeyPrefix = "Assets/Sprites/FloatingText/floating_text_";
         private const string ShaderName = "LD/FloatingTextRenderFeature/TextInstanced";
 
         [Header("Layout")]
-        [Tooltip("Horizontal spacing between each digit in world units.")]
+        [Tooltip("Horizontal spacing between each character in world units.")]
         [SerializeField] private float digitWidth = 0.35f;
-        [Tooltip("Base scale of each digit quad in world units.")]
+        [Tooltip("Base scale of each character quad in world units.")]
         [SerializeField] private float digitSize = 0.4f;
 
         [Header("Animation")]
@@ -38,14 +36,14 @@ namespace LD.FloatingTextRenderFeature
         [Header("Test")]
         [SerializeField] private float spamInterval = 0.05f;
 
-        private static readonly char[] SupportedChars =
-            { '0', '1', '2', '3', '4', '5', '6', '7', '8', '9', ',', '.' };
-
         private static FloatingTextManager _instance;
         public static FloatingTextManager Instance => _instance;
 
         [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.SubsystemRegistration)]
         private static void ResetStatics() => _instance = null;
+
+        // char → atlas index mapping (built from atlas.characters at Initialize)
+        private Dictionary<char, int> _charToIndex;
 
         private struct FloatingTextEntry
         {
@@ -53,19 +51,14 @@ namespace LD.FloatingTextRenderFeature
             public float Elapsed;
             public float Duration;
             public float BaseScale;
-            public long PackedDigits;
-            public byte DigitCount;
+            public long PackedChars;
+            public byte CharCount;
         }
 
         private readonly List<FloatingTextEntry> _entries = new();
 
         private Mesh _quadMesh;
-        private Material[] _materialArray;
-        private Matrix4x4[][] _charMatrices;
-        private int[] _charCounts;
 
-        // Atlas mode
-        private bool _useAtlas;
         private Material _atlasMaterial;
         private Matrix4x4[] _atlasMatrices;
         private int _atlasCount;
@@ -79,11 +72,6 @@ namespace LD.FloatingTextRenderFeature
         private int _digitOutputCapacity;
 
         internal Mesh QuadMesh => _quadMesh;
-        internal Material[] MaterialArray => _materialArray;
-        internal Matrix4x4[][] CharMatrices => _charMatrices;
-        internal int[] CharCounts => _charCounts;
-        internal int SupportedCharCount => SupportedChars.Length;
-        internal bool UseAtlas => _useAtlas;
         internal Material AtlasMaterial => _atlasMaterial;
         internal Matrix4x4[] AtlasMatrices => _atlasMatrices;
         internal int AtlasCount => _atlasCount;
@@ -91,12 +79,17 @@ namespace LD.FloatingTextRenderFeature
         private bool _initialized;
 
 #if UNITY_EDITOR
-        private int _testDamage;
+            private string _testText;
         private float _testDuration;
-        private float _testScale = 1f;
+        private float _testScale = 1.5f;
         private float _testX;
         private float _testY;
         private int _testSpawnCount = 10;
+        private string _testDurationStr;
+        private string _testScaleStr;
+        private string _testSpawnCountStr;
+        private string _testXStr;
+        private string _testYStr;
         private bool _spamActive;
         private float _spamTimer;
 #endif
@@ -113,19 +106,38 @@ namespace LD.FloatingTextRenderFeature
             if (_animator == null)
                 _animator = ScriptableObject.CreateInstance<DefaultFloatingTextAnimator>();
 #if UNITY_EDITOR
-            _testDamage = 1234;
+            _testText = "1,234";
             _testDuration = defaultDuration;
+            _testDurationStr = _testDuration.ToString("F2");
+            _testScaleStr = _testScale.ToString("F2");
+            _testSpawnCountStr = _testSpawnCount.ToString();
+            _testXStr = _testX.ToString("F1");
+            _testYStr = _testY.ToString("F1");
 #endif
         }
 
         private void Start()
         {
-            InitializeAsync().Forget();
+            Initialize();
         }
 
-        private async UniTaskVoid InitializeAsync()
+        private void Initialize()
         {
             _quadMesh = CreateQuadMesh();
+
+            if (_atlas == null || _atlas.atlasTexture == null)
+            {
+                Debug.LogError("[FloatingTextManager] FloatingTextAtlas is not assigned or has no texture. Atlas is required.");
+                return;
+            }
+
+            // Build char → index lookup from atlas
+            _charToIndex = new Dictionary<char, int>();
+            if (_atlas.characters != null)
+            {
+                for (int i = 0; i < _atlas.characters.Length; i++)
+                    _charToIndex[_atlas.characters[i]] = i;
+            }
 
             var shader = Shader.Find(ShaderName);
             if (shader == null)
@@ -134,64 +146,25 @@ namespace LD.FloatingTextRenderFeature
                 return;
             }
 
-            // Atlas mode: single material, single matrices array
-            if (_atlas != null && _atlas.atlasTexture != null)
+            _atlasMaterial = new Material(shader)
             {
-                _useAtlas = true;
-                _atlasMaterial = new Material(shader)
-                {
-                    mainTexture = _atlas.atlasTexture,
-                    enableInstancing = true,
-                };
-                _atlasMaterial.SetFloat("_Columns", _atlas.columns);
-                _atlasMaterial.SetFloat("_Rows", _atlas.rows);
-                _atlasMatrices = new Matrix4x4[MaxInstances];
+                mainTexture = _atlas.atlasTexture,
+                enableInstancing = true,
+            };
+            _atlasMaterial.SetFloat("_Columns", _atlas.columns);
+            _atlasMaterial.SetFloat("_Rows", _atlas.rows);
 
-                // Still allocate legacy arrays (needed for CharCounts null-check guard)
-                int n = SupportedChars.Length;
-                _charMatrices = new Matrix4x4[n][];
-                _charCounts = new int[n];
-                _materialArray = new Material[n];
-                for (int i = 0; i < n; i++)
-                    _charMatrices[i] = new Matrix4x4[0];
-
-                _initialized = true;
-                Debug.Log($"[FloatingTextManager] Initialized (Atlas mode). Columns={_atlas.columns} Rows={_atlas.rows}");
-                return;
-            }
-
-            // Legacy mode: per-char materials via Addressables
-            int count = SupportedChars.Length;
-            _charMatrices = new Matrix4x4[count][];
-            _charCounts = new int[count];
-            _materialArray = new Material[count];
-
-            for (int i = 0; i < count; i++)
+            // Pass half-padding in UV space so shader can offset into content area
+            if (_atlas.atlasTexture != null && _atlas.cellPadding > 0)
             {
-                _charMatrices[i] = new Matrix4x4[MaxInstances];
+                float halfPadU = (_atlas.cellPadding * 0.5f) / _atlas.atlasTexture.width;
+                float halfPadV = (_atlas.cellPadding * 0.5f) / _atlas.atlasTexture.height;
+                _atlasMaterial.SetVector("_PaddingUV", new Vector4(halfPadU, halfPadV, 0, 0));
             }
-
-            for (int i = 0; i < count; i++)
-            {
-                char c = SupportedChars[i];
-                var key = GetSpriteKey(c);
-                var handle = Addressables.LoadAssetAsync<Sprite>(key);
-                await handle.ToUniTask();
-                var sprite = handle.Result;
-                if (sprite == null)
-                {
-                    Debug.LogWarning($"[FloatingTextManager] Sprite load failed: {key}");
-                    continue;
-                }
-                _materialArray[i] = new Material(shader)
-                {
-                    mainTexture = sprite.texture,
-                    enableInstancing = true,
-                };
-            }
+            _atlasMatrices = new Matrix4x4[MaxInstances];
 
             _initialized = true;
-            Debug.Log($"[FloatingTextManager] Initialized. Materials: {CountLoadedMaterials()}/{count}");
+            Debug.Log($"[FloatingTextManager] Initialized (Atlas). Columns={_atlas.columns} Rows={_atlas.rows} Characters={_atlas.characters?.Length ?? 0}");
         }
 
 #if UNITY_EDITOR
@@ -202,7 +175,7 @@ namespace LD.FloatingTextRenderFeature
             if (_spamTimer < spamInterval) return;
             _spamTimer = 0f;
             var rng = UnityEngine.Random.insideUnitCircle * 1.5f;
-            Show(new Vector3(_testX + rng.x, _testY + rng.y, 0f), _testDamage, _testDuration, _testScale);
+            Show(new Vector3(_testX + rng.x, _testY + rng.y, 0f), _testText, _testDuration, _testScale);
         }
 #endif
 
@@ -210,7 +183,7 @@ namespace LD.FloatingTextRenderFeature
         {
             if (!_initialized || _entries.Count == 0) return;
 
-            Array.Clear(_charCounts, 0, _charCounts.Length);
+            _atlasCount = 0;
 
             // ── Phase 1: Update elapsed, compact expired entries ──
             float dt = Time.deltaTime;
@@ -246,11 +219,11 @@ namespace LD.FloatingTextRenderFeature
                     Elapsed = e.Elapsed,
                     Duration = e.Duration,
                     BaseScale = e.BaseScale,
-                    PackedDigits = e.PackedDigits,
-                    DigitCount = e.DigitCount,
+                    PackedChars = e.PackedChars,
+                    CharCount = e.CharCount,
                 };
                 _writeOffsets[i] = totalDigits;
-                totalDigits += e.DigitCount;
+                totalDigits += e.CharCount;
             }
 
             EnsureDigitOutputCapacity(totalDigits);
@@ -268,49 +241,49 @@ namespace LD.FloatingTextRenderFeature
                 WriteOffsets = _writeOffsets.GetSubArray(0, count),
                 DigitSize = digitSize,
                 DigitWidth = digitWidth,
-                UseAtlas = _useAtlas,
                 Output = _digitOutputs,
             };
             JobHandle buildHandle = buildJob.Schedule(count, 32, animHandle);
             buildHandle.Complete();
 
-            // ── Phase 5: Scatter DigitOutput → matrices (main thread) ──
-            if (_useAtlas)
+            // ── Phase 5: Scatter DigitOutput → atlas matrices (main thread) ──
+            for (int i = 0; i < totalDigits; i++)
             {
-                _atlasCount = 0;
-                for (int i = 0; i < totalDigits; i++)
-                {
-                    if (_atlasCount >= MaxInstances) break;
-                    _atlasMatrices[_atlasCount] = ToMatrix(_digitOutputs[i].Matrix);
-                    _atlasCount++;
-                }
-            }
-            else
-            {
-                for (int i = 0; i < totalDigits; i++)
-                {
-                    var d = _digitOutputs[i];
-                    int cnt = _charCounts[d.CharIndex];
-                    if (cnt >= MaxInstances) continue;
-                    _charMatrices[d.CharIndex][cnt] = ToMatrix(d.Matrix);
-                    _charCounts[d.CharIndex] = cnt + 1;
-                }
+                if (_atlasCount >= MaxInstances) break;
+                _atlasMatrices[_atlasCount] = ToMatrix(_digitOutputs[i].Matrix);
+                _atlasCount++;
             }
         }
 
+        /// <summary>
+        /// Show floating text with an integer value (legacy API).
+        /// Internally converts to string and uses PackChars.
+        /// </summary>
         public void Show(Vector3 worldPos, int damage, float duration = 0f, float scale = 1f)
         {
             if (!_initialized) return;
             int absDamage = Mathf.Abs(damage);
-            long packed = PackDigits(absDamage, out byte digitCount);
+            string text = absDamage.ToString();
+            Show(worldPos, text, duration, scale);
+        }
+
+        /// <summary>
+        /// Show floating text with an arbitrary string.
+        /// Each character must exist in the atlas's characters array.
+        /// </summary>
+        public void Show(Vector3 worldPos, string text, float duration = 0f, float scale = 1f)
+        {
+            if (!_initialized || string.IsNullOrEmpty(text)) return;
+            long packed = PackChars(text, out byte charCount);
+            if (charCount == 0) return;
             _entries.Add(new FloatingTextEntry
             {
                 OriginPos = worldPos,
                 Elapsed = 0f,
                 Duration = duration > 0f ? duration : defaultDuration,
                 BaseScale = scale,
-                PackedDigits = packed,
-                DigitCount = digitCount,
+                PackedChars = packed,
+                CharCount = charCount,
             });
         }
 
@@ -326,35 +299,52 @@ namespace LD.FloatingTextRenderFeature
             GUI.Box(new Rect(0, 0, panelW, panelH), "Floating Text Tester");
             GUILayout.Space(28);
 
-            GUILayout.Label($"Damage Value: {_testDamage}");
-            _testDamage = Mathf.RoundToInt(GUILayout.HorizontalSlider(_testDamage, 1, 99999));
+            GUILayout.BeginHorizontal();
+            GUILayout.Label("Text:", GUILayout.Width(80));
+            _testText = GUILayout.TextField(_testText);
+            GUILayout.EndHorizontal();
 
-            GUILayout.Label($"Duration: {_testDuration:F2}s");
-            _testDuration = GUILayout.HorizontalSlider(_testDuration, 0.3f, 2.0f);
+            GUILayout.BeginHorizontal();
+            GUILayout.Label("Duration:", GUILayout.Width(80));
+            _testDurationStr = GUILayout.TextField(_testDurationStr);
+            if (float.TryParse(_testDurationStr, out float dur)) _testDuration = dur;
+            GUILayout.EndHorizontal();
 
-            GUILayout.Label($"Scale: {_testScale:F2}");
-            _testScale = GUILayout.HorizontalSlider(_testScale, 0.1f, 3.0f);
+            GUILayout.BeginHorizontal();
+            GUILayout.Label("Scale:", GUILayout.Width(80));
+            _testScaleStr = GUILayout.TextField(_testScaleStr);
+            if (float.TryParse(_testScaleStr, out float scl)) _testScale = scl;
+            GUILayout.EndHorizontal();
 
-            GUILayout.Label($"Spawn Count: {_testSpawnCount}");
-            _testSpawnCount = Mathf.RoundToInt(GUILayout.HorizontalSlider(_testSpawnCount, 1, 500));
+            GUILayout.BeginHorizontal();
+            GUILayout.Label("Spawn Count:", GUILayout.Width(80));
+            _testSpawnCountStr = GUILayout.TextField(_testSpawnCountStr);
+            if (int.TryParse(_testSpawnCountStr, out int cnt)) _testSpawnCount = cnt;
+            GUILayout.EndHorizontal();
 
-            GUILayout.Label($"X Pos: {_testX:F1}");
-            _testX = GUILayout.HorizontalSlider(_testX, -10f, 10f);
+            GUILayout.BeginHorizontal();
+            GUILayout.Label("X Pos:", GUILayout.Width(80));
+            _testXStr = GUILayout.TextField(_testXStr);
+            if (float.TryParse(_testXStr, out float xv)) _testX = xv;
+            GUILayout.EndHorizontal();
 
-            GUILayout.Label($"Y Pos: {_testY:F1}");
-            _testY = GUILayout.HorizontalSlider(_testY, -10f, 10f);
+            GUILayout.BeginHorizontal();
+            GUILayout.Label("Y Pos:", GUILayout.Width(80));
+            _testYStr = GUILayout.TextField(_testYStr);
+            if (float.TryParse(_testYStr, out float yv)) _testY = yv;
+            GUILayout.EndHorizontal();
 
             GUILayout.Space(6);
 
             if (GUILayout.Button("Spawn Once"))
-                Show(new Vector3(_testX, _testY, 0f), _testDamage, _testDuration, _testScale);
+                Show(new Vector3(_testX, _testY, 0f), _testText, _testDuration, _testScale);
 
             if (GUILayout.Button($"Spawn {_testSpawnCount}"))
             {
                 for (int i = 0; i < _testSpawnCount; i++)
                 {
                     var rng = UnityEngine.Random.insideUnitCircle * 1.5f;
-                    Show(new Vector3(_testX + rng.x, _testY + rng.y, 0f), _testDamage, _testDuration, _testScale);
+                    Show(new Vector3(_testX + rng.x, _testY + rng.y, 0f), _testText, _testDuration, _testScale);
                 }
             }
 
@@ -382,11 +372,6 @@ namespace LD.FloatingTextRenderFeature
             DisposeNativeArrays();
 
             if (_atlasMaterial != null) Destroy(_atlasMaterial);
-
-            if (_materialArray != null)
-                foreach (var mat in _materialArray)
-                    if (mat != null) Destroy(mat);
-
             if (_quadMesh != null) Destroy(_quadMesh);
             _entries.Clear();
             if (_instance == this) _instance = null;
@@ -455,45 +440,33 @@ namespace LD.FloatingTextRenderFeature
             return mesh;
         }
 
-        private static string GetSpriteKey(char c) => c switch
+        /// <summary>
+        /// Pack a string into a long using 8-bit per character (max 8 chars).
+        /// Each character is mapped to its atlas index via _charToIndex.
+        /// Characters not found in the atlas are skipped.
+        /// </summary>
+        private long PackChars(string text, out byte charCount)
         {
-            ',' => $"{SpriteKeyPrefix},.png",
-            '.' => $"{SpriteKeyPrefix}..png",
-            _ => $"{SpriteKeyPrefix}{c}.png",
-        };
-
-        private static long PackDigits(int n, out byte digitCount)
-        {
-            if (n == 0) { digitCount = 1; return 0; }
-
             long packed = 0;
             byte count = 0;
-            while (n > 0)
+            for (int i = 0; i < text.Length && count < MaxCharsPerEntry; i++)
             {
-                packed |= (long)(n % 10) << (count * 4);
-                count++;
-                n /= 10;
+                if (_charToIndex.TryGetValue(text[i], out int idx))
+                {
+                    packed |= (long)(idx & 0xFF) << ((MaxCharsPerEntry - 1 - count) * 8);
+                    count++;
+                }
             }
-            digitCount = count;
+            // Align packed chars to LSB so unpacking with charLen works correctly
+            if (count < MaxCharsPerEntry)
+                packed >>= (MaxCharsPerEntry - count) * 8;
+            charCount = count;
             return packed;
-        }
-
-        private int CountLoadedMaterials()
-        {
-            if (_materialArray == null) return 0;
-            int c = 0;
-            foreach (var m in _materialArray) if (m != null) c++;
-            return c;
         }
 
         private int CountActiveSpriteTypes()
         {
-            if (_useAtlas) return _atlasCount > 0 ? 1 : 0;
-            if (_charCounts == null) return 0;
-            int c = 0;
-            for (int i = 0; i < _charCounts.Length; i++)
-                if (_charCounts[i] > 0) c++;
-            return c;
+            return _atlasCount > 0 ? 1 : 0;
         }
 
     }

@@ -12,7 +12,8 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 858592f54a4624ce3a872333cc2b041e, type: 3}
   m_Name: FloatingTextAtlas
   m_EditorClassIdentifier: com.shlifedev.floating-text-render-feature.Runtime::LD.FloatingTextRenderFeature.FloatingTextAtlas
-  atlasTexture: {fileID: 2800000, guid: bdfa281ba799c4635bc08724e4067b27, type: 3}
+  atlasTexture: {fileID: 2800000, guid: cddbbde139b6d446699186486a2667e2, type: 3}
   columns: 4
-  rows: 3
-  characters: 30003100320033003400350036003700380039002c002e00
+  rows: 4
+  cellPadding: 4
+  characters: 30003100320033003400350036003700380039002c002e007100

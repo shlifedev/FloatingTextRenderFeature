@@ -4,9 +4,6 @@
   "references": [
     "Unity.RenderPipelines.Universal.Runtime",
     "Unity.RenderPipelines.Core.Runtime",
-    "Unity.Addressables",
-    "Unity.ResourceManager",
-    "UniTask",
     "Unity.Burst",
     "Unity.Collections",
     "Unity.Mathematics"

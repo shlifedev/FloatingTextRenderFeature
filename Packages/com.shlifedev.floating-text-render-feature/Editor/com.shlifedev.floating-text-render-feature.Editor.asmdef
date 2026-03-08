@@ -4,9 +4,7 @@
   "references": [
     "com.shlifedev.floating-text-render-feature.Runtime",
     "Unity.RenderPipelines.Universal.Runtime",
-    "Unity.RenderPipelines.Universal.Editor",
-    "Unity.Addressables.Editor",
-    "Unity.Addressables"
+    "Unity.RenderPipelines.Universal.Editor"
   ],
   "includePlatforms": [
     "Editor"

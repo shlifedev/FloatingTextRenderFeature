@@ -40,6 +40,7 @@ Shader "LD/FloatingTextRenderFeature/TextInstanced"
                 float4 _MainTex_ST;
                 float _Columns;
                 float _Rows;
+                float2 _PaddingUV;
             CBUFFER_END
 
             struct Attributes
@@ -81,9 +82,10 @@ Shader "LD/FloatingTextRenderFeature/TextInstanced"
                 if (_Columns > 0)
                 {
                     float2 cellSize = float2(1.0 / _Columns, 1.0 / _Rows);
+                    float2 contentSize = cellSize - 2.0 * _PaddingUV;
                     float col = fmod(input.charIndex, _Columns);
                     float row = floor(input.charIndex / _Columns);
-                    uv = input.uv * cellSize + float2(col * cellSize.x, (_Rows - 1 - row) * cellSize.y);
+                    uv = input.uv * contentSize + float2(col * cellSize.x + _PaddingUV.x, (_Rows - 1 - row) * cellSize.y + _PaddingUV.y);
                 }
 
                 half4 texColor = SAMPLE_TEXTURE2D(_MainTex, sampler_MainTex, uv);

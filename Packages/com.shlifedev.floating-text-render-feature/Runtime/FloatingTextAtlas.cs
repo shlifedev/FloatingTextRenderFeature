@@ -8,6 +8,7 @@ namespace LD.FloatingTextRenderFeature
         public Texture2D atlasTexture;
         public int columns;
         public int rows;
+        public int cellPadding;
         public char[] characters;
     }
 }

@@ -1,9 +1,7 @@
+using System;
 using System.Collections.Generic;
 using System.IO;
 using UnityEditor;
-using UnityEditor.AddressableAssets;
-using UnityEditor.AddressableAssets.Settings;
-using UnityEditor.AddressableAssets.Settings.GroupSchemas;
 using UnityEditor.UIElements;
 using UnityEngine;
 using UnityEngine.UIElements;
@@ -12,25 +10,32 @@ namespace LD.FloatingTextRenderFeature.Editor
 {
     public class FontSpriteGeneratorWindow : EditorWindow
     {
+        [Serializable]
+        private class ExtraSpriteEntry
+        {
+            public string key = "";
+            public Texture2D sprite;
+        }
+
         private Font _font;
         private int _fontSize = 64;
         private Color _textColor = Color.white;
         private string _characters = "0123456789,.";
         private string _outputPath = "Assets/Sprites/FloatingText";
-        private bool _createAtlas;
-        private const string FilePrefix = "floating_text_";
-
         private HelpBox _charCountBox;
         private HelpBox _statusBox;
-        private VisualElement _previewSection;
-        private VisualElement _previewContainer;
         private Button _generateButton;
+        private VisualElement _previewSection;
+        private Image _previewImage;
+
+        private readonly List<ExtraSpriteEntry> _extraSprites = new();
+        private VisualElement _extraSpritesListContainer;
 
         [MenuItem("Window/Floating Text/Font Sprite Generator")]
         public static void ShowWindow()
         {
             var wnd = GetWindow<FontSpriteGeneratorWindow>("Font Sprite Generator");
-            wnd.minSize = new Vector2(380, 520);
+            wnd.minSize = new Vector2(380, 620);
         }
 
         public void CreateGUI()
@@ -52,10 +57,10 @@ namespace LD.FloatingTextRenderFeature.Editor
 
             scrollView.Add(BuildFontSettingsSection());
             scrollView.Add(BuildCharactersSection());
+            scrollView.Add(BuildExtraSpritesSection());
             scrollView.Add(BuildOutputSection());
-            scrollView.Add(BuildAtlasSection());
 
-            _generateButton = new Button(Generate) { text = "Generate Sprites" };
+            _generateButton = new Button(Generate) { text = "Generate Atlas" };
             _generateButton.style.height = 32;
             _generateButton.style.marginTop = 8;
             _generateButton.style.unityFontStyleAndWeight = FontStyle.Bold;
@@ -69,10 +74,13 @@ namespace LD.FloatingTextRenderFeature.Editor
 
             _previewSection = BuildSection("Preview");
             _previewSection.style.display = DisplayStyle.None;
-            _previewContainer = new VisualElement();
-            _previewContainer.style.flexDirection = FlexDirection.Row;
-            _previewContainer.style.flexWrap = Wrap.Wrap;
-            _previewSection.Add(_previewContainer);
+            _previewImage = new Image();
+            _previewImage.style.maxWidth = 350;
+            _previewImage.style.maxHeight = 350;
+            _previewImage.scaleMode = ScaleMode.ScaleToFit;
+            _previewImage.style.marginTop = 4;
+            ApplyBorder(_previewImage, 1, 2, new Color(0.3f, 0.3f, 0.3f, 0.5f));
+            _previewSection.Add(_previewImage);
             scrollView.Add(_previewSection);
         }
 
@@ -138,20 +146,79 @@ namespace LD.FloatingTextRenderFeature.Editor
             return section;
         }
 
-        private VisualElement BuildAtlasSection()
+        private VisualElement BuildExtraSpritesSection()
         {
-            var section = BuildSection("Atlas");
+            var section = BuildSection("Extra Sprites");
 
-            var toggle = new Toggle("Create Atlas") { value = _createAtlas };
-            toggle.RegisterValueChangedCallback(evt => _createAtlas = evt.newValue);
-            section.Add(toggle);
-
-            var hint = new HelpBox(
-                "When enabled, an atlas texture and FloatingTextAtlas ScriptableObject will be generated alongside individual PNGs.",
+            var desc = new HelpBox(
+                "Add custom sprites (icons, emoji, etc.) to the atlas. " +
+                "Each entry needs a unique character key used to reference it at runtime.",
                 HelpBoxMessageType.Info);
-            section.Add(hint);
+            section.Add(desc);
+
+            _extraSpritesListContainer = new VisualElement();
+            section.Add(_extraSpritesListContainer);
+
+            var addBtn = new Button(() =>
+            {
+                _extraSprites.Add(new ExtraSpriteEntry());
+                RebuildExtraSpritesList();
+            }) { text = "+ Add Extra Sprite" };
+            addBtn.style.marginTop = 4;
+            section.Add(addBtn);
 
             return section;
+        }
+
+        private void RebuildExtraSpritesList()
+        {
+            _extraSpritesListContainer.Clear();
+
+            for (int i = 0; i < _extraSprites.Count; i++)
+            {
+                int idx = i;
+                var entry = _extraSprites[i];
+
+                var row = new VisualElement();
+                row.style.flexDirection = FlexDirection.Row;
+                row.style.alignItems = Align.Center;
+                row.style.marginTop = 2;
+                row.style.marginBottom = 2;
+
+                var keyLabel = new Label("Key:");
+                keyLabel.style.width = 28;
+                keyLabel.style.unityTextAlign = TextAnchor.MiddleRight;
+                keyLabel.style.marginRight = 4;
+                row.Add(keyLabel);
+
+                var keyField = new TextField { value = entry.key, maxLength = 1 };
+                keyField.style.width = 40;
+                keyField.tooltip = "A single character used to reference this sprite at runtime (e.g. Unicode character)";
+                keyField.RegisterValueChangedCallback(evt =>
+                {
+                    _extraSprites[idx].key = evt.newValue;
+                });
+                row.Add(keyField);
+
+                var spriteField = new ObjectField("Sprite") { objectType = typeof(Texture2D), value = entry.sprite };
+                spriteField.style.flexGrow = 1;
+                spriteField.RegisterValueChangedCallback(evt =>
+                {
+                    _extraSprites[idx].sprite = evt.newValue as Texture2D;
+                });
+                row.Add(spriteField);
+
+                var removeBtn = new Button(() =>
+                {
+                    _extraSprites.RemoveAt(idx);
+                    RebuildExtraSpritesList();
+                }) { text = "-" };
+                removeBtn.style.width = 24;
+                removeBtn.style.marginLeft = 4;
+                row.Add(removeBtn);
+
+                _extraSpritesListContainer.Add(row);
+            }
         }
 
         private VisualElement BuildOutputSection()
@@ -208,27 +275,6 @@ namespace LD.FloatingTextRenderFeature.Editor
             _statusBox.style.display = DisplayStyle.Flex;
         }
 
-        private void RefreshPreview(List<string> paths)
-        {
-            _previewContainer.Clear();
-
-            foreach (string path in paths)
-            {
-                var tex = AssetDatabase.LoadAssetAtPath<Texture2D>(path);
-                if (tex == null) continue;
-
-                var img = new Image { image = tex };
-                img.style.width = 64;
-                img.style.height = 64;
-                img.style.marginRight = 4;
-                img.style.marginBottom = 4;
-                ApplyBorder(img, 1, 2, new Color(0.3f, 0.3f, 0.3f, 0.5f));
-                _previewContainer.Add(img);
-            }
-
-            _previewSection.style.display = paths.Count > 0 ? DisplayStyle.Flex : DisplayStyle.None;
-        }
-
         private static void ApplyBorder(VisualElement el, float width, float radius, Color color)
         {
             el.style.borderTopWidth = width;
@@ -248,8 +294,6 @@ namespace LD.FloatingTextRenderFeature.Editor
         private void Generate()
         {
             _statusBox.style.display = DisplayStyle.None;
-            _previewContainer.Clear();
-            _previewSection.style.display = DisplayStyle.None;
 
             if (_font == null)
             {
@@ -279,10 +323,14 @@ namespace LD.FloatingTextRenderFeature.Editor
 
             _font.RequestCharactersInTexture(new string(chars.ToArray()), _fontSize, FontStyle.Normal);
 
-            int generated = 0;
             int skipped = 0;
-            var generatedPaths = new List<string>();
-            var glyphTextures = _createAtlas ? new List<Texture2D>() : null;
+            var glyphTextures = new List<Texture2D>();
+            var validChars = new List<char>();
+
+            // --- 1st pass: collect global font metrics for baseline alignment ---
+            int globalMinY = int.MaxValue;
+            int globalMaxY = int.MinValue;
+            var charInfos = new List<(char c, CharacterInfo info)>();
 
             foreach (char c in chars)
             {
@@ -293,133 +341,199 @@ namespace LD.FloatingTextRenderFeature.Editor
                     continue;
                 }
 
+                charInfos.Add((c, info));
+
+                if (info.minY < globalMinY) globalMinY = info.minY;
+                if (info.maxY > globalMaxY) globalMaxY = info.maxY;
+            }
+
+            int uniformH = Mathf.Max(globalMaxY - globalMinY, 1);
+
+            // --- 2nd pass: render each glyph at correct baseline position ---
+            foreach (var (c, info) in charInfos)
+            {
                 int glyphW = Mathf.Max(Mathf.Abs(info.maxX - info.minX), 1);
                 int glyphH = Mathf.Max(Mathf.Abs(info.maxY - info.minY), 1);
 
                 if (glyphW < 2 && info.advance > 0)
                     glyphW = info.advance;
 
-                var rt = RenderTexture.GetTemporary(glyphW, glyphH, 0, RenderTextureFormat.ARGB32);
+                // Render into uniform-height texture for baseline alignment
+                int cellH = uniformH;
+                var rt = RenderTexture.GetTemporary(glyphW, cellH, 0, RenderTextureFormat.ARGB32);
                 var prevRT = RenderTexture.active;
                 RenderTexture.active = rt;
 
                 GL.Clear(true, true, Color.clear);
                 GL.PushMatrix();
-                GL.LoadPixelMatrix(0, glyphW, glyphH, 0);
+                GL.LoadPixelMatrix(0, glyphW, cellH, 0);
 
                 Material fontMat = _font.material;
                 fontMat.SetPass(0);
+
+                // Calculate vertical position: offset from top based on baseline
+                int yPos = globalMaxY - info.maxY;
 
                 GL.Begin(GL.QUADS);
                 GL.Color(_textColor);
 
                 GL.TexCoord(info.uvTopLeft);
-                GL.Vertex3(0, 0, 0);
+                GL.Vertex3(0, yPos, 0);
 
                 GL.TexCoord(info.uvTopRight);
-                GL.Vertex3(glyphW, 0, 0);
+                GL.Vertex3(glyphW, yPos, 0);
 
                 GL.TexCoord(info.uvBottomRight);
-                GL.Vertex3(glyphW, glyphH, 0);
+                GL.Vertex3(glyphW, yPos + glyphH, 0);
 
                 GL.TexCoord(info.uvBottomLeft);
-                GL.Vertex3(0, glyphH, 0);
+                GL.Vertex3(0, yPos + glyphH, 0);
 
                 GL.End();
                 GL.PopMatrix();
 
-                var charTex = new Texture2D(glyphW, glyphH, TextureFormat.ARGB32, false);
-                charTex.ReadPixels(new Rect(0, 0, glyphW, glyphH), 0, 0);
+                var charTex = new Texture2D(glyphW, cellH, TextureFormat.ARGB32, false);
+                charTex.ReadPixels(new Rect(0, 0, glyphW, cellH), 0, 0);
                 charTex.Apply();
 
                 RenderTexture.active = prevRT;
                 RenderTexture.ReleaseTemporary(rt);
 
-                string fileName = $"{FilePrefix}{c}.png";
-                string filePath = Path.Combine(_outputPath, fileName);
-                byte[] pngData = charTex.EncodeToPNG();
-                File.WriteAllBytes(Path.GetFullPath(filePath), pngData);
-                generatedPaths.Add(filePath);
-
-                if (glyphTextures != null)
-                    glyphTextures.Add(charTex);
-                else
-                    DestroyImmediate(charTex);
-                generated++;
+                glyphTextures.Add(charTex);
+                validChars.Add(c);
             }
 
-            AssetDatabase.Refresh();
-
-            // Configure import settings: Sprite type, Point filter, RGBA32, optimized max size
-            int maxSize = Mathf.Max(32, Mathf.NextPowerOfTwo(_fontSize));
-            foreach (string path in generatedPaths)
+            // Determine cell size from font glyphs only
+            int maxGlyphW = 0, maxGlyphH = 0;
+            foreach (var tex in glyphTextures)
             {
-                var importer = AssetImporter.GetAtPath(path) as TextureImporter;
-                if (importer != null)
-                {
-                    importer.textureType = TextureImporterType.Sprite;
-                    importer.spriteImportMode = SpriteImportMode.Single;
-                    importer.spritePixelsPerUnit = _fontSize;
-                    importer.filterMode = FilterMode.Point;
-                    importer.textureCompression = TextureImporterCompression.Uncompressed;
-
-                    var settings = importer.GetDefaultPlatformTextureSettings();
-                    settings.format = TextureImporterFormat.RGBA32;
-                    settings.maxTextureSize = maxSize;
-                    importer.SetPlatformTextureSettings(settings);
-
-                    importer.SaveAndReimport();
-                }
+                if (tex.width > maxGlyphW) maxGlyphW = tex.width;
+                if (tex.height > maxGlyphH) maxGlyphH = tex.height;
             }
 
-            // Register to Addressables "FloatingTextGroup"
-            var aaSettings = AddressableAssetSettingsDefaultObject.Settings;
-            if (aaSettings == null)
-                aaSettings = AddressableAssetSettingsDefaultObject.GetSettings(true);
-
-            if (aaSettings != null)
+            // Append extra sprites (resized to fit glyph cell size)
+            int extraSkipped = 0;
+            foreach (var entry in _extraSprites)
             {
-                var group = aaSettings.FindGroup("FloatingTextGroup")
-                    ?? aaSettings.CreateGroup("FloatingTextGroup", false, false, true,
-                        null, typeof(BundledAssetGroupSchema), typeof(ContentUpdateGroupSchema));
-
-                foreach (string path in generatedPaths)
+                if (string.IsNullOrEmpty(entry.key) || entry.sprite == null)
                 {
-                    var guid = AssetDatabase.AssetPathToGUID(path);
-                    if (!string.IsNullOrEmpty(guid))
-                    {
-                        var entry = aaSettings.CreateOrMoveEntry(guid, group, false, false);
-                        entry.address = path;
-                    }
+                    extraSkipped++;
+                    continue;
                 }
 
-                aaSettings.SetDirty(AddressableAssetSettings.ModificationEvent.EntryMoved, null, true);
-                Debug.Log($"[FontSpriteGenerator] Added {generatedPaths.Count} sprite(s) to Addressables group 'FloatingTextGroup'.");
-            }
-            else
-            {
-                Debug.LogWarning("[FontSpriteGenerator] Addressable Asset Settings not found. Please initialize Addressables first.");
+                char key = entry.key[0];
+
+                // Check for duplicate key
+                if (validChars.Contains(key))
+                {
+                    Debug.LogWarning($"[FontSpriteGenerator] Extra sprite key '{key}' duplicates an existing character, skipping.");
+                    extraSkipped++;
+                    continue;
+                }
+
+                // Make the texture readable, then resize if larger than cell size
+                var readableTex = MakeReadable(entry.sprite);
+                if (maxGlyphW > 0 && maxGlyphH > 0 && (readableTex.width > maxGlyphW || readableTex.height > maxGlyphH))
+                {
+                    var resized = ResizeTexture(readableTex, maxGlyphW, maxGlyphH);
+                    DestroyImmediate(readableTex);
+                    readableTex = resized;
+                }
+                glyphTextures.Add(readableTex);
+                validChars.Add(key);
             }
 
-            // ── Atlas generation ──
-            if (_createAtlas && glyphTextures != null && glyphTextures.Count > 0)
+            if (glyphTextures.Count > 0)
             {
-                GenerateAtlas(chars, glyphTextures);
+                GenerateAtlas(validChars, glyphTextures);
                 foreach (var tex in glyphTextures)
                     DestroyImmediate(tex);
             }
 
-            RefreshPreview(generatedPaths);
-
-            string msg = $"Generated {generated} sprite(s) at '{_outputPath}'.";
-            if (_createAtlas && generatedPaths.Count > 0)
-                msg += " Atlas created.";
+            int generated = glyphTextures.Count;
+            string msg = $"Atlas generated with {generated} character(s) at '{_outputPath}'.";
             if (skipped > 0)
-                msg += $" Skipped {skipped} character(s).";
+                msg += $" Skipped {skipped} font character(s).";
+            if (extraSkipped > 0)
+                msg += $" Skipped {extraSkipped} extra sprite(s).";
 
-            ShowStatus(msg, skipped > 0 ? HelpBoxMessageType.Warning : HelpBoxMessageType.Info);
+            ShowStatus(msg, (skipped > 0 || extraSkipped > 0) ? HelpBoxMessageType.Warning : HelpBoxMessageType.Info);
             Debug.Log($"[FontSpriteGenerator] {msg}");
+
+            RefreshAtlasPreview();
         }
+
+        private static Texture2D MakeReadable(Texture2D source)
+        {
+            var rt = RenderTexture.GetTemporary(source.width, source.height, 0, RenderTextureFormat.ARGB32);
+            Graphics.Blit(source, rt);
+            var prevRT = RenderTexture.active;
+            RenderTexture.active = rt;
+            var readable = new Texture2D(source.width, source.height, TextureFormat.ARGB32, false);
+            readable.ReadPixels(new Rect(0, 0, source.width, source.height), 0, 0);
+            readable.Apply();
+            RenderTexture.active = prevRT;
+            RenderTexture.ReleaseTemporary(rt);
+            return readable;
+        }
+
+        private static Texture2D ResizeTexture(Texture2D source, int maxWidth, int maxHeight)
+        {
+            float aspectRatio = (float)source.width / source.height;
+            int newWidth, newHeight;
+
+            if (source.width >= source.height)
+            {
+                newWidth = maxWidth;
+                newHeight = Mathf.Max(1, Mathf.RoundToInt(maxWidth / aspectRatio));
+                if (newHeight > maxHeight)
+                {
+                    newHeight = maxHeight;
+                    newWidth = Mathf.Max(1, Mathf.RoundToInt(maxHeight * aspectRatio));
+                }
+            }
+            else
+            {
+                newHeight = maxHeight;
+                newWidth = Mathf.Max(1, Mathf.RoundToInt(maxHeight * aspectRatio));
+                if (newWidth > maxWidth)
+                {
+                    newWidth = maxWidth;
+                    newHeight = Mathf.Max(1, Mathf.RoundToInt(maxWidth / aspectRatio));
+                }
+            }
+
+            var rt = RenderTexture.GetTemporary(newWidth, newHeight, 0, RenderTextureFormat.ARGB32);
+            rt.filterMode = FilterMode.Bilinear;
+            Graphics.Blit(source, rt);
+
+            var prevRT = RenderTexture.active;
+            RenderTexture.active = rt;
+            var resized = new Texture2D(newWidth, newHeight, TextureFormat.ARGB32, false);
+            resized.ReadPixels(new Rect(0, 0, newWidth, newHeight), 0, 0);
+            resized.Apply();
+
+            RenderTexture.active = prevRT;
+            RenderTexture.ReleaseTemporary(rt);
+            return resized;
+        }
+
+        private void RefreshAtlasPreview()
+        {
+            string atlasPath = Path.Combine(_outputPath, "floating_text_atlas.png");
+            var tex = AssetDatabase.LoadAssetAtPath<Texture2D>(atlasPath);
+            if (tex != null)
+            {
+                _previewImage.image = tex;
+                _previewSection.style.display = DisplayStyle.Flex;
+            }
+            else
+            {
+                _previewSection.style.display = DisplayStyle.None;
+            }
+        }
+
+        private const int CellPadding = 4;
 
         private void GenerateAtlas(List<char> chars, List<Texture2D> textures)
         {
@@ -433,12 +547,16 @@ namespace LD.FloatingTextRenderFeature.Editor
                 if (tex.height > cellH) cellH = tex.height;
             }
 
+            // Add padding to cell size
+            int paddedCellW = cellW + CellPadding;
+            int paddedCellH = cellH + CellPadding;
+
             int charCount = textures.Count;
             int cols = Mathf.CeilToInt(Mathf.Sqrt(charCount));
             int rows = Mathf.CeilToInt((float)charCount / cols);
 
-            int atlasW = cols * cellW;
-            int atlasH = rows * cellH;
+            int atlasW = cols * paddedCellW;
+            int atlasH = rows * paddedCellH;
 
             var atlas = new Texture2D(atlasW, atlasH, TextureFormat.RGBA32, false);
 
@@ -453,8 +571,8 @@ namespace LD.FloatingTextRenderFeature.Editor
                 int row = i / cols;
 
                 // Row 0 = top of atlas in our grid, but texture Y=0 is bottom
-                int pixelX = col * cellW;
-                int pixelY = (rows - 1 - row) * cellH;
+                int pixelX = col * paddedCellW + CellPadding / 2;
+                int pixelY = (rows - 1 - row) * paddedCellH + CellPadding / 2;
 
                 var src = textures[i];
                 var srcPixels = src.GetPixels();
@@ -513,12 +631,13 @@ namespace LD.FloatingTextRenderFeature.Editor
             atlasAsset.atlasTexture = AssetDatabase.LoadAssetAtPath<Texture2D>(atlasPath);
             atlasAsset.columns = cols;
             atlasAsset.rows = rows;
+            atlasAsset.cellPadding = CellPadding;
             atlasAsset.characters = chars.ToArray();
 
             EditorUtility.SetDirty(atlasAsset);
             AssetDatabase.SaveAssets();
 
-            Debug.Log($"[FontSpriteGenerator] Atlas generated: {atlasPath} ({cols}x{rows}, cell {cellW}x{cellH})");
+            Debug.Log($"[FontSpriteGenerator] Atlas generated: {atlasPath} ({cols}x{rows}, cell {cellW}x{cellH}, {charCount} chars)");
         }
 
         private static List<char> GetUniqueChars(string input)

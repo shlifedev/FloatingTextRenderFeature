@@ -8,8 +8,8 @@ namespace LD.FloatingTextRenderFeature
         public float Elapsed;
         public float Duration;
         public float BaseScale;
-        public long PackedDigits;
-        public byte DigitCount;
+        public long PackedChars;
+        public byte CharCount;
     }
 
     public struct AnimationResult
