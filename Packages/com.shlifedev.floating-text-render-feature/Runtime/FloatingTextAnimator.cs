@@ -1,6 +1,9 @@
 using Unity.Collections;
 using Unity.Jobs;
 using UnityEngine;
+#if UNITY_ASSERTIONS
+using UnityEngine.Assertions;
+#endif
 
 namespace LD.FloatingTextRenderFeature
 {
@@ -10,6 +13,10 @@ namespace LD.FloatingTextRenderFeature
     /// </summary>
     public abstract class FloatingTextAnimator : ScriptableObject
     {
+#if DEVELOPMENT_BUILD || UNITY_EDITOR
+        private static bool s_loggedManagedFallbackWarning;
+#endif
+
         /// <summary>
         /// Evaluate animation values at the given time.
         /// </summary>
@@ -29,6 +36,22 @@ namespace LD.FloatingTextRenderFeature
             NativeArray<FloatingTextEntryNative> entries,
             NativeArray<AnimationResult> results)
         {
+#if UNITY_ASSERTIONS
+            Assert.IsTrue(false,
+                $"[{nameof(FloatingTextAnimator)}] {GetType().Name} is using managed fallback in {nameof(ScheduleEvaluateBatch)}(). " +
+                "Override ScheduleEvaluateBatch() and provide a Burst-compatible job for production use.");
+#endif
+
+#if DEVELOPMENT_BUILD || UNITY_EDITOR
+            if (!s_loggedManagedFallbackWarning)
+            {
+                s_loggedManagedFallbackWarning = true;
+                Debug.LogWarning(
+                    $"[{nameof(FloatingTextAnimator)}] {GetType().Name} did not override {nameof(ScheduleEvaluateBatch)}(). " +
+                    "Falling back to managed Evaluate() loop. Implement a Burst job to avoid per-frame main-thread cost.");
+            }
+#endif
+
             for (int i = 0; i < entries.Length; i++)
             {
                 var e = entries[i];

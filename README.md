@@ -4,8 +4,7 @@ Unity URP(Universal Render Pipeline) 에서 동작하는 월드 스페이스 플
 
 ## Preview
 
-https://github.com/user-attachments/assets/50299113-4016-4622-aca2-d44aedc3f65c
-
+https://github.com/user-attachments/assets/56a3db9f-0ab1-47ac-8611-cc8a6d886198
 
 ## Features
 
@@ -39,6 +38,18 @@ FloatingTextManager.Instance.Show(worldPosition, damage);
 // duration과 scale 지정
 FloatingTextManager.Instance.Show(worldPosition, damage, duration: 1.0f, scale: 1.5f);
 ```
+
+## 커스텀 Animator 작성 규칙
+
+`FloatingTextAnimator`를 상속해 커스텀 애니메이터를 만들 때는 아래 규칙을 지켜주세요.
+
+- `Evaluate(...)`는 단일 엔트리 계산 로직(수학식) 정의용입니다.
+- `ScheduleEvaluateBatch(...)`는 **반드시 override** 해서 `IJobFor`/`IJobParallelFor` 기반의 Burst job을 스케줄해야 합니다.
+- `FloatingTextManager`는 매 프레임 `_animator.ScheduleEvaluateBatch(...)`를 호출합니다.
+  - 미구현 시 managed fallback(`Evaluate` 루프)으로 진입하며, 개발 빌드/에디터에서는 경고 로그가 1회 출력됩니다.
+  - `UNITY_ASSERTIONS` 환경에서는 런타임 assert로 구현 누락을 빠르게 감지합니다.
+
+권장: 기본 구현은 `DefaultFloatingTextAnimator`의 `ScheduleEvaluateBatch` 예제를 참고하세요.
 
 ## Font Sprite Generator
 

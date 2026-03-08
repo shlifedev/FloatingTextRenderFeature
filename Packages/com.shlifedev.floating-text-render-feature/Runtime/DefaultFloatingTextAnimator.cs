@@ -37,6 +37,7 @@ namespace LD.FloatingTextRenderFeature
                 : 1f - EaseInQuad(Mathf.Clamp01(alphaElapsed / fadeDuration));
         }
 
+        // FloatingTextAnimator.ScheduleEvaluateBatch must be overridden with a Burst-compatible batch path.
         public override JobHandle ScheduleEvaluateBatch(
             NativeArray<FloatingTextEntryNative> entries,
             NativeArray<AnimationResult> results)
